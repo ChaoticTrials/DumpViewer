@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import type { CategorizedFiles, ConfigEntry, DumpFile, SelectedFile } from '../types';
 import { getConfigParseError } from '../utils/parseConfig';
 import {
@@ -15,7 +15,6 @@ import {
   FaExclamation,
   FaTriangleExclamation,
 } from 'react-icons/fa6';
-import * as React from 'react';
 
 interface Props {
   cat: CategorizedFiles;
@@ -26,9 +25,9 @@ interface Props {
 
 interface SectionProps {
   title: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   defaultOpen?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 function Section({ title, icon, defaultOpen = true, children }: SectionProps) {
@@ -80,7 +79,7 @@ function FileIcon({ file }: { file: DumpFile }) {
 const LARGE_FILE_THRESHOLD = 256 * 1024;
 
 interface ItemProps {
-  icon: React.ReactNode;
+  icon: ReactNode;
   name: string;
   active: boolean;
   badge?: number | true;
@@ -130,7 +129,7 @@ function Item({ icon, name, active, badge, hasError, isLarge, onClick }: ItemPro
           Large
         </span>
       )}
-      {badge !== undefined && badge !== 0 && badge !== false && (
+      {badge !== undefined && badge !== 0 && (
         <span className="diff-badge">
           <FaCodeCompare style={{ marginRight: badge === true ? 0 : 6 }} />
           {badge !== true && badge}

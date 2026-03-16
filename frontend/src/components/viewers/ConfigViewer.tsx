@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type HTMLAttributes } from 'react';
 import { diffLines } from 'diff';
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import { useHighlighterTheme } from '../../utils/useHighlighterTheme';
@@ -58,7 +58,7 @@ export default function ConfigViewer({ fullContent, changedContent, changedForma
     const content = tabJson5 === 'changed' ? changedContent : fullContent;
     const showDiffHighlight = tabJson5 === 'full';
 
-    function lineProps(lineNumber: number): React.HTMLAttributes<HTMLElement> {
+    function lineProps(lineNumber: number): HTMLAttributes<HTMLElement> {
       if (!showDiffHighlight) return {};
       if (defaultLines.has(lineNumber)) {
         return { className: 'line-default' };
@@ -122,7 +122,7 @@ export default function ConfigViewer({ fullContent, changedContent, changedForma
   if (changedFormat === 'diff' && changedContent !== null) {
     const rawDiffLines = changedContent.split('\n');
 
-    function diffLineProps(lineNumber: number): React.HTMLAttributes<HTMLElement> {
+    function diffLineProps(lineNumber: number): HTMLAttributes<HTMLElement> {
       const line = rawDiffLines[lineNumber - 1] ?? '';
       if (line.startsWith('+++') || line.startsWith('---')) return { className: 'line-diff-meta' };
       if (line.startsWith('+')) return { className: 'line-diff-added' };

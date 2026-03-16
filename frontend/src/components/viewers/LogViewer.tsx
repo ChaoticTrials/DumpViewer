@@ -29,7 +29,7 @@ function parseLog(content: string): LogEntry[] {
   return entries;
 }
 
-const LEVELS: Level[] = ['INFO', 'WARN', 'ERROR', 'DEBUG'];
+const LEVELS: Level[] = ['INFO', 'WARN', 'ERROR', 'FATAL', 'DEBUG'];
 
 interface Props {
   content: string;
@@ -37,7 +37,7 @@ interface Props {
 
 export default function LogViewer({ content }: Props) {
   const entries = useMemo(() => parseLog(content), [content]);
-  const [activeLevels, setActiveLevels] = useState<Set<Level>>(new Set(['WARN', 'ERROR', 'DEBUG']));
+  const [activeLevels, setActiveLevels] = useState<Set<Level>>(new Set(['INFO', 'WARN', 'ERROR', 'FATAL', 'DEBUG']));
 
   const counts = useMemo(() => {
     const c: Partial<Record<Level, number>> = {};

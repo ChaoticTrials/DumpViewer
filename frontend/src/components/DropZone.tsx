@@ -1,7 +1,9 @@
-import { useRef, useState } from 'react';
-import * as React from 'react';
+import { type ChangeEvent, type DragEvent, useRef, useState } from 'react';
 
-const API_URL = import.meta.env.VITE_API_URL as string | undefined;
+// In production (Docker), default to '' (relative same-origin paths) if VITE_API_URL is not set.
+// In dev, no VITE_API_URL means browser-only mode (undefined disables backend features).
+const _rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
+const API_URL: string | undefined = import.meta.env.PROD ? (_rawApiUrl ?? '') : _rawApiUrl;
 
 interface Props {
   onFile: (file: File) => void;
@@ -9,9 +11,9 @@ interface Props {
 }
 
 function getHintText(apiUrl: string | undefined, token: string): string {
-  if (!apiUrl) return 'No backend — dropped files are processed entirely in your browser.';
+  if (apiUrl === undefined) return 'No backend — dropped files are processed entirely in your browser.';
   if (token) return 'File will be saved to server and accessible via its manifest ID.';
-  return 'Add an auth token to save the dump on the server; otherwise the URL import is not stored.';
+  return 'Add an auth token to use the URL importer.';
 }
 
 export default function DropZone({ onFile, error }: Props) {
@@ -22,14 +24,14 @@ export default function DropZone({ onFile, error }: Props) {
   const [urlLoading, setUrlLoading] = useState(false);
   const [token, setToken] = useState('');
 
-  function handleDrop(e: React.DragEvent) {
+  function handleDrop(e: DragEvent) {
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files[0];
     if (file) onFile(file);
   }
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file) onFile(file);
     e.target.value = '';
@@ -41,7 +43,7 @@ export default function DropZone({ onFile, error }: Props) {
     setUrlLoading(true);
     setUrlError(undefined);
 
-    if (API_URL) {
+    if (API_URL !== undefined) {
       // Backend-assisted download
       try {
         const resp = await fetch(`${API_URL}/api/dump/import`, {
@@ -147,7 +149,7 @@ export default function DropZone({ onFile, error }: Props) {
           or open from URL
           <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
         </div>
-        {API_URL && (
+        {API_URL !== undefined && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
             <span style={{ fontSize: 11, color: 'var(--text)', opacity: 0.7 }}>Auth token</span>
             <input

@@ -206,8 +206,8 @@ export function cleanupOldDumps(dumpsDir: string): number {
     const id = file.slice(0, -4);
     const zipPath = path.join(dumpsDir, file);
     const metaPath = path.join(dumpsDir, `${id}.meta`);
+    let expiresAt: number;
     try {
-      let expiresAt: number;
       if (fs.existsSync(metaPath)) {
         const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { expiresAt: number };
         expiresAt = meta.expiresAt;
@@ -215,17 +215,19 @@ export function cleanupOldDumps(dumpsDir: string): number {
         const stat = fs.statSync(zipPath);
         expiresAt = stat.mtimeMs + ONE_YEAR_MS;
       }
-      if (Date.now() > expiresAt) {
-        fs.unlinkSync(zipPath);
-        try {
-          fs.unlinkSync(metaPath);
-        } catch {
-          /* no sidecar is fine */
-        }
-        deleted++;
-      }
     } catch {
-      /* silently skip individual errors */
+      console.error(`Failed to read sidecar for ${id}`);
+      expiresAt = 0;
+    }
+
+    if (Date.now() > expiresAt) {
+      fs.unlinkSync(zipPath);
+      try {
+        fs.unlinkSync(metaPath);
+      } catch {
+        /* no sidecar is fine */
+      }
+      deleted++;
     }
   }
 
@@ -553,7 +555,7 @@ app.get('/health', (_req, res) => {
 // Serve frontend static files in production
 if (process.env.NODE_ENV === 'production') {
   const frontendDir = path.resolve(
-    process.env.FRONTEND_DIR ?? path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'frontend', 'dist'),
+    process.env.FRONTEND_DIR ?? path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'frontend', 'dist'),
   );
   app.use(express.static(frontendDir));
   // Fallback to index.html for SPA routing

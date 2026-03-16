@@ -1,5 +1,5 @@
 import type { DumpFile } from '../../types';
-import { formatBytes } from '../../utils/zipParser';
+import { formatBytes } from '../../manifest';
 import { FaCube } from 'react-icons/fa6';
 
 interface Props {

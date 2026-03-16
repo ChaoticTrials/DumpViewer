@@ -34,7 +34,7 @@ Upload a dump zip from disk.
 
 - **Auth:** required if `AUTH_TOKEN` is set
 - **Content-Type:** `multipart/form-data`
-- **Field:** `file` — the `.zip` file (max 256 MB)
+- **Field:** `file` — the `.zip` file (max 512 MB)
 - **Field:** `ttl` _(optional)_ — how long the dump survives on the server, in seconds. Max `31536000` (1 year). Defaults to 1 year.
 
 **Response `200`:**
@@ -69,7 +69,7 @@ Fetch a dump zip from a remote URL and store it on the server.
 - **Auth:** required if `AUTH_TOKEN` is set
 - **Content-Type:** `application/json`
 - **Body:** `{ "url": "https://example.com/dump.zip", "ttl": 604800 }`
-  - `url` — required. Must be a public `http`/`https` address. Private and loopback addresses are blocked (SSRF protection). Up to 5 HTTP redirects are followed; each redirect target is validated against the same rules. Max size: 256 MB.
+  - `url` — required. Must be a public `http`/`https` address. Private and loopback addresses are blocked (SSRF protection). Up to 5 HTTP redirects are followed; each redirect target is validated against the same rules. Max size: 512 MB.
   - `ttl` _(optional)_ — how long the dump survives on the server, in seconds. Max `31536000` (1 year). Defaults to 1 year.
 
 **Response `200`:**

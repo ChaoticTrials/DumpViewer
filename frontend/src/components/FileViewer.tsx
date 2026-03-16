@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { type CSSProperties, useState } from 'react';
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import { useHighlighterTheme } from '../utils/useHighlighterTheme';
-import type { DumpFile, ParsedDump, SelectedFile } from '../manifest/index';
+import type { DumpFile, ParsedDump, SelectedFile } from '../manifest';
 import ConfigViewer from './viewers/ConfigViewer';
 import LogViewer from './viewers/LogViewer';
 import CrashReportViewer from './viewers/CrashReportViewer';
@@ -111,7 +111,7 @@ export default function FileViewer({ selected, dump }: Props) {
 
   if (!selected) {
     return (
-      <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as React.CSSProperties}>
+      <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as CSSProperties}>
         <div className="empty-state">
           <span className="empty-state-icon">👈</span>
           <span className="empty-state-text">Select a file from the sidebar</span>
@@ -132,7 +132,7 @@ export default function FileViewer({ selected, dump }: Props) {
     const changedContent = changedFile?.content ?? null;
 
     return (
-      <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as React.CSSProperties}>
+      <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as CSSProperties}>
         <div className="file-viewer-header">
           <span className="file-viewer-title">{entry.fullPath}</span>
           <div className="file-viewer-actions">
@@ -156,7 +156,7 @@ export default function FileViewer({ selected, dump }: Props) {
   if (file.isBinary) {
     if (file.rawBuffer) {
       return (
-        <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as React.CSSProperties}>
+        <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as CSSProperties}>
           <div className="file-viewer-header">
             <span className="file-viewer-title">{file.path}</span>
             <div className="file-viewer-actions">
@@ -173,7 +173,7 @@ export default function FileViewer({ selected, dump }: Props) {
       );
     } else {
       return (
-        <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as React.CSSProperties}>
+        <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as CSSProperties}>
           <div className="file-viewer-header">
             <span className="file-viewer-title">{file.path}</span>
             <div className="file-viewer-actions">
@@ -196,7 +196,7 @@ export default function FileViewer({ selected, dump }: Props) {
 
   if (file.name.endsWith('.log')) {
     return (
-      <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as React.CSSProperties}>
+      <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as CSSProperties}>
         <div className="file-viewer-header">
           <span className="file-viewer-title">{file.path}</span>
           <div className="file-viewer-actions">
@@ -218,7 +218,7 @@ export default function FileViewer({ selected, dump }: Props) {
 
   if (file.name === 'crash-report.txt') {
     return (
-      <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as React.CSSProperties}>
+      <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as CSSProperties}>
         <div className="file-viewer-header">
           <span className="file-viewer-title">{file.path}</span>
           <div className="file-viewer-actions">
@@ -240,7 +240,7 @@ export default function FileViewer({ selected, dump }: Props) {
 
   // Generic text file
   return (
-    <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as React.CSSProperties}>
+    <div className="viewer-area" style={{ '--viewer-font-size': `${viewerFontSize}px` } as CSSProperties}>
       <div className="file-viewer-header">
         <span className="file-viewer-title">{file.path}</span>
         <div className="file-viewer-actions">

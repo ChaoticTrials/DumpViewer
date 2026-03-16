@@ -529,6 +529,11 @@
   color: var(--log-error);
   border-color: color-mix(in srgb, var(--log-error) 30%, transparent);
 }
+.log-filter-btn.active-fatal {
+  background: color-mix(in srgb, var(--log-fatal) 10%, transparent);
+  color: var(--log-fatal);
+  border-color: color-mix(in srgb, var(--log-fatal) 30%, transparent);
+}
 .log-filter-btn.active-debug {
   background: color-mix(in srgb, var(--log-debug) 12%, transparent);
   color: var(--log-debug);

@@ -1,15 +1,15 @@
-import type { AnyManifest } from '../manifest/index';
+import type { AnyManifest } from '../manifest';
 import { formatRelativeExpiry } from '../utils/formatExpiry';
 import ThemeToggle from './ThemeToggle';
-import * as React from 'react';
 import { HeaderLogo } from './HeaderLogo.tsx';
+import type { RefObject } from 'react';
 
 interface Props {
   manifest: AnyManifest;
   expiresAt?: Date | null;
   onReset: () => void;
   onUpload: () => void;
-  fileInputRef: React.RefObject<HTMLInputElement | null>;
+  fileInputRef: RefObject<HTMLInputElement | null>;
 }
 
 const SETTING_LABELS: Record<string, string> = {

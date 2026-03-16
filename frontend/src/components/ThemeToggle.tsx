@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import * as React from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 
 type BaseTheme = 'dark' | 'light' | 'system';
 
@@ -100,7 +99,7 @@ export default function ThemeToggle() {
 
   const BaseIcon = base === 'light' ? SunIcon : base === 'dark' ? MoonIcon : SystemIcon;
 
-  const halfBtn: React.CSSProperties = {
+  const halfBtn: CSSProperties = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',

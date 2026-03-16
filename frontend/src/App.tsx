@@ -59,9 +59,11 @@ export default function App() {
       return;
     }
 
-    const apiUrl = import.meta.env.VITE_API_URL as string | undefined;
-    // UUID v4 but no backend configured → redirect to home
-    if (!apiUrl) {
+    // In production (Docker), default to '' (relative same-origin paths) if VITE_API_URL is not set.
+    // In dev, no VITE_API_URL means browser-only mode → redirect home.
+    const rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
+    const apiUrl: string | undefined = import.meta.env.PROD ? (rawApiUrl ?? '') : rawApiUrl;
+    if (apiUrl === undefined) {
       window.history.replaceState({}, '', '/');
       return;
     }
