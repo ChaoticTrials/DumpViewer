@@ -1,15 +1,27 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/frontend"
+  - package-ecosystem: 'npm'
+    directory: '/frontend'
     schedule:
-      interval: "monthly"
+      interval: 'monthly'
     commit-message:
-      prefix: "Dependency"
+      prefix: 'Dependency'
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-patch']
+    groups:
+      frontend-deps:
+        patterns: ['*']
 
-  - package-ecosystem: "npm"
-    directory: "/backend"
+  - package-ecosystem: 'npm'
+    directory: '/backend'
     schedule:
-      interval: "monthly"
+      interval: 'monthly'
     commit-message:
-      prefix: "Dependency"
+      prefix: 'Dependency'
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-patch']
+    groups:
+      backend-deps:
+        patterns: ['*']

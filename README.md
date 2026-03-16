@@ -2,7 +2,7 @@
 
 Web-based viewer for [Skyblock Builder](https://github.com/ChaoticTrials/SkyblockBuilder) dump files. Supports browsing configs, islands, world files, and logs directly in the browser.
 
-*This project contains AI-generated content.*
+_This project contains AI-generated content._
 
 ## Project structure
 
