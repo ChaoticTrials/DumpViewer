@@ -151,9 +151,7 @@ function toSnbt(value: unknown, type: number, indent: number = 0, full = false):
     const obj = value as Record<string, { __type: number; value: unknown }>;
     const entries = Object.entries(obj);
     if (entries.length === 0) return '{}';
-    const lines = entries.map(
-      ([k, v]) => `${pad1}${JSON.stringify(k)}: ${toSnbt(v.value, v.__type, indent + 1, full)}`,
-    );
+    const lines = entries.map(([k, v]) => `${pad1}${JSON.stringify(k)}: ${toSnbt(v.value, v.__type, indent + 1, full)}`);
     return `{\n${lines.join(',\n')}\n${pad}}`;
   }
   if (type === TAG_LIST) {
@@ -230,10 +228,7 @@ export default function NbtViewer({ rawBuffer }: Props) {
         const decompressed = await decompress(rawBuffer);
         const reader = new NBTReader(decompressed);
         const parsed = reader.readRoot();
-        if (!cancelled)
-          setRoot(
-            parsed ? { value: parsed.value, type: parsed.type } : { value: {}, type: TAG_COMPOUND },
-          );
+        if (!cancelled) setRoot(parsed ? { value: parsed.value, type: parsed.type } : { value: {}, type: TAG_COMPOUND });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }
@@ -248,9 +243,7 @@ export default function NbtViewer({ rawBuffer }: Props) {
   if (error) {
     const isLimitError = /too deeply nested|out of range|too many keys|exceeds size limit|too large/i.test(error);
     return (
-      <div
-        style={{ padding: '16px', color: isLimitError ? '#e5c07b' : '#e06c75', fontFamily: 'var(--mono)', fontSize: '13px' }}
-      >
+      <div style={{ padding: '16px', color: isLimitError ? '#e5c07b' : '#e06c75', fontFamily: 'var(--mono)', fontSize: '13px' }}>
         {isLimitError
           ? 'This NBT file is too large or complex to display. You can download the raw file to inspect it.'
           : `Failed to parse NBT: ${error}`}
@@ -259,13 +252,7 @@ export default function NbtViewer({ rawBuffer }: Props) {
   }
 
   if (root === null) {
-    return (
-      <div
-        style={{ padding: '16px', color: '#abb2bf', fontFamily: 'var(--mono)', fontSize: '13px' }}
-      >
-        Parsing NBT data...
-      </div>
-    );
+    return <div style={{ padding: '16px', color: '#abb2bf', fontFamily: 'var(--mono)', fontSize: '13px' }}>Parsing NBT data...</div>;
   }
 
   let snbt = toSnbt(root.value, root.type, 0, full);
@@ -291,11 +278,7 @@ export default function NbtViewer({ rawBuffer }: Props) {
         <button
           className={`action-btn${full ? ' action-btn-primary' : ''}`}
           onClick={() => setFull((v) => !v)}
-          title={
-            full
-              ? 'Click to trim large arrays again'
-              : 'Click to expand all arrays without truncation'
-          }
+          title={full ? 'Click to trim large arrays again' : 'Click to expand all arrays without truncation'}
         >
           {full ? 'Trimming disabled' : 'Expand all arrays'}
         </button>

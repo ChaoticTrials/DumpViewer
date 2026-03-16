@@ -23,11 +23,12 @@
   align-items: center;
   gap: 10px;
   padding: 0 14px;
-  height: 54px;
+  min-height: 54px;
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   font-size: 14px;
+  flex-wrap: wrap;
 }
 
 .header-title {
@@ -47,7 +48,6 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  overflow: hidden;
 }
 
 .badge {
@@ -398,6 +398,37 @@
   opacity: var(--dim-opacity, 0.3);
   display: block;
   width: 100%;
+}
+
+.line-diff-added {
+  display: block;
+  width: 100%;
+  background: rgba(74, 222, 128, 0.12);
+  border-left: 2px solid rgba(74, 222, 128, 0.5);
+  margin-left: -2px;
+  padding-left: 2px;
+}
+
+.line-diff-removed {
+  display: block;
+  width: 100%;
+  background: rgba(248, 113, 113, 0.12);
+  border-left: 2px solid rgba(248, 113, 113, 0.4);
+  margin-left: -2px;
+  padding-left: 2px;
+}
+
+.line-diff-hunk {
+  display: block;
+  width: 100%;
+  background: rgba(96, 165, 250, 0.08);
+  opacity: 0.85;
+}
+
+.line-diff-meta {
+  display: block;
+  width: 100%;
+  opacity: 0.45;
 }
 
 .line-changed {

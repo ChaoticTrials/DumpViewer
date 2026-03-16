@@ -5,9 +5,7 @@ function isLightTheme(theme: string | null): boolean {
 }
 
 export const HeaderLogo = () => {
-  const [light, setLight] = useState(() =>
-    isLightTheme(document.documentElement.getAttribute('data-theme')),
-  );
+  const [light, setLight] = useState(() => isLightTheme(document.documentElement.getAttribute('data-theme')));
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -21,6 +19,8 @@ export const HeaderLogo = () => {
   }, []);
 
   return (
-    <img src={light ? '/logoDark.svg' : '/logoLight.svg'} alt="Logo" style={{ height: '70%' }} />
+    <div style={{ height: 32, width: 32, flexShrink: 0 }}>
+      <img src={light ? '/logoDark.svg' : '/logoLight.svg'} alt="Logo" style={{ height: '100%', width: '100%' }} />
+    </div>
   );
 };

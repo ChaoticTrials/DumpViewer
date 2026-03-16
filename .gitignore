@@ -17,6 +17,7 @@ node_modules
 dist
 dist-ssr
 frontend/dist
+backend/dumps
 *.local
 .vite
 

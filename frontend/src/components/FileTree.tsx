@@ -45,12 +45,15 @@ function Section({ title, icon, defaultOpen = true, children }: SectionProps) {
   );
 }
 
-function configChangeCount(entry: ConfigEntry, files: Map<string, DumpFile>): number {
+function configChangeBadge(entry: ConfigEntry, files: Map<string, DumpFile>): number | true {
   if (!entry.changedPath) return 0;
   const changed = files.get(entry.changedPath);
   if (!changed?.content) return 0;
-  // Count top-level keys by counting lines with `"key":` at indent level 2 (two spaces)
-  return (changed.content.match(/^ {2}"[^"]+"\s*:/gm) ?? []).length;
+  if (entry.changedFormat === 'diff') {
+    return /^\+(?!\+\+)/m.test(changed.content) ? true : 0;
+  }
+  // v1 json5: indicate presence of changes (count can be misleading)
+  return (changed.content.match(/^ {2}"[^"]+"\s*:/gm) ?? []).length > 0 ? true : 0;
 }
 
 function configHasParseError(entry: ConfigEntry, files: Map<string, DumpFile>): boolean {
@@ -80,7 +83,7 @@ interface ItemProps {
   icon: React.ReactNode;
   name: string;
   active: boolean;
-  badge?: number;
+  badge?: number | true;
   hasError?: boolean;
   isLarge?: boolean;
   onClick: () => void;
@@ -127,9 +130,10 @@ function Item({ icon, name, active, badge, hasError, isLarge, onClick }: ItemPro
           Large
         </span>
       )}
-      {badge !== undefined && badge > 0 && (
+      {badge !== undefined && badge !== 0 && badge !== false && (
         <span className="diff-badge">
-          <FaCodeCompare style={{ marginRight: 6 }} /> {badge}
+          <FaCodeCompare style={{ marginRight: badge === true ? 0 : 6 }} />
+          {badge !== true && badge}
         </span>
       )}
     </button>
@@ -176,7 +180,7 @@ export default function FileTree({ cat, files, selected, onSelect }: Props) {
               icon={<FaCode style={{ fontSize: 12, opacity: 0.6, flexShrink: 0 }} />}
               name={entry.name}
               active={isConfigSelected(selected, entry)}
-              badge={configChangeCount(entry, files)}
+              badge={configChangeBadge(entry, files)}
               hasError={configHasParseError(entry, files)}
               isLarge={configIsLarge(entry, files)}
               onClick={() => onSelect({ kind: 'config', entry })}
@@ -185,10 +189,7 @@ export default function FileTree({ cat, files, selected, onSelect }: Props) {
         </Section>
       )}
 
-      {(cat.islands.length > 0 ||
-        cat.spreads.length > 0 ||
-        cat.portals.length > 0 ||
-        cat.otherTemplates.length > 0) && (
+      {(cat.islands.length > 0 || cat.spreads.length > 0 || cat.portals.length > 0 || cat.otherTemplates.length > 0) && (
         <Section title="Templates" icon={<FaCubes style={{ fontSize: 12 }} />} defaultOpen={false}>
           {cat.islands.length > 0 && (
             <>

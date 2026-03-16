@@ -30,8 +30,8 @@ fs.mkdirSync(DUMPS_DIR, { recursive: true });
 
 export const app = express();
 
-// Open CORS
-app.use(cors({ origin: ALLOWED_ORIGIN }));
+// Open CORS — expose X-Expires-At for browser fetch
+app.use(cors({ origin: ALLOWED_ORIGIN, exposedHeaders: ['X-Expires-At'] }));
 
 app.use(express.json({ limit: '4kb' }));
 
@@ -39,6 +39,24 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_UPLOAD_BYTES },
 });
+
+// Helper: fetch a URL following redirects, validating each redirect target with isSafeUrl()
+async function fetchWithSafeRedirects(url: string, signal: AbortSignal, maxRedirects = 5): Promise<Response> {
+  let currentUrl = url;
+  for (let i = 0; i <= maxRedirects; i++) {
+    const response = await fetch(currentUrl, { signal, redirect: 'manual' });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (!location) throw new Error('Redirect with no Location header');
+      const resolved = new URL(location, currentUrl).toString();
+      if (!isSafeUrl(resolved)) throw new Error('Redirect target is not allowed');
+      currentUrl = resolved;
+      continue;
+    }
+    return response;
+  }
+  throw new Error('Too many redirects');
+}
 
 // Helper: validate a URL is safe to fetch (no SSRF)
 export function isSafeUrl(rawUrl: string): boolean {
@@ -232,10 +250,29 @@ function writeFileAtomic(dest: string, buffer: Buffer): void {
   }
 }
 
-// Helper: write a sidecar .meta file recording when the dump expires
-function writeMeta(zipDest: string, ttlMs: number): void {
+// Helper: extract the `hashes` field from a manifest (present in v2 dumps)
+function extractManifestHashes(buffer: Buffer): Record<string, unknown> | undefined {
+  try {
+    const zip = new AdmZip(buffer);
+    const manifestEntry = zip.getEntry('manifest.json');
+    if (!manifestEntry) return undefined;
+    const manifest = JSON.parse(manifestEntry.getData().toString('utf-8')) as Record<string, unknown>;
+    const h = manifest['hashes'];
+    if (typeof h === 'object' && h !== null && !Array.isArray(h)) {
+      return h as Record<string, unknown>;
+    }
+  } catch {
+    /* ignore */
+  }
+  return undefined;
+}
+
+// Helper: write a sidecar .meta file recording expiry and optional hashes
+function writeMeta(zipDest: string, ttlMs: number, hashes?: Record<string, unknown>): void {
   const metaDest = zipDest.replace(/\.zip$/, '.meta');
-  fs.writeFileSync(metaDest, JSON.stringify({ expiresAt: Date.now() + ttlMs }));
+  const meta: Record<string, unknown> = { expiresAt: Date.now() + ttlMs };
+  if (hashes) meta['hashes'] = hashes;
+  fs.writeFileSync(metaDest, JSON.stringify(meta));
 }
 
 // Middleware: require auth token if configured
@@ -246,7 +283,7 @@ function requireUploadToken(req: express.Request, res: express.Response, next: e
   } // token not configured → open
 
   const auth = (req.headers['authorization'] as string) ?? '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : ((req.headers['x-upload-token'] as string) ?? '');
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : ((req.headers['x-auth-token'] as string) ?? '');
 
   // Constant-time comparison to prevent timing attacks
   let valid = false;
@@ -285,8 +322,7 @@ app.post('/api/dump/import', uploadLimiter, requireUploadToken, async (req, res)
     const timeout = setTimeout(() => controller.abort(), 30_000);
     let response: Response;
     try {
-      // redirect: 'error' prevents following redirects to internal addresses (SSRF bypass)
-      response = await fetch(url, { signal: controller.signal, redirect: 'error' });
+      response = await fetchWithSafeRedirects(url, controller.signal);
     } finally {
       clearTimeout(timeout);
     }
@@ -336,7 +372,7 @@ app.post('/api/dump/import', uploadLimiter, requireUploadToken, async (req, res)
   const dest = path.join(DUMPS_DIR, `${id}.zip`);
   try {
     writeFileAtomic(dest, buffer);
-    writeMeta(dest, parseTtlMs(ttl));
+    writeMeta(dest, parseTtlMs(ttl), extractManifestHashes(buffer));
   } catch {
     res.status(500).json({ error: 'Failed to save dump' });
     return;
@@ -366,7 +402,7 @@ app.post('/api/dump/upload', uploadLimiter, requireUploadToken, upload.single('f
   const dest = path.join(DUMPS_DIR, `${id}.zip`);
   try {
     writeFileAtomic(dest, buffer);
-    writeMeta(dest, parseTtlMs(ttl));
+    writeMeta(dest, parseTtlMs(ttl), extractManifestHashes(buffer));
   } catch {
     res.status(500).json({ error: 'Failed to save dump' });
     return;
@@ -390,6 +426,19 @@ app.get('/api/dump/:id', (req, res) => {
     return;
   }
 
+  // Add expiry header if sidecar meta exists
+  const metaPath = path.join(DUMPS_DIR, `${id}.meta`);
+  if (fs.existsSync(metaPath)) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { expiresAt: number };
+      const expiresDate = new Date(meta.expiresAt);
+      res.setHeader('X-Expires-At', expiresDate.toISOString());
+      res.setHeader('Expires', expiresDate.toUTCString());
+    } catch {
+      /* ignore missing or malformed meta */
+    }
+  }
+
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', `attachment; filename="${id}.zip"`);
   const stream = fs.createReadStream(filePath);
@@ -401,6 +450,35 @@ app.get('/api/dump/:id', (req, res) => {
     }
   });
   stream.pipe(res);
+});
+
+// GET /api/dump/:id/manifest — returns parsed manifest.json from the stored zip (public)
+app.get('/api/dump/:id/manifest', (req, res) => {
+  const id = req.params['id'] as string;
+
+  if (!isValidId(id)) {
+    res.status(400).json({ error: 'Invalid dump id' });
+    return;
+  }
+
+  const filePath = path.join(DUMPS_DIR, `${id}.zip`);
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+
+  try {
+    const zip = new AdmZip(filePath);
+    const manifestEntry = zip.getEntry('manifest.json');
+    if (!manifestEntry) {
+      res.status(422).json({ error: 'No manifest.json in stored zip' });
+      return;
+    }
+    const manifest = JSON.parse(manifestEntry.getData().toString('utf-8')) as unknown;
+    res.json(manifest);
+  } catch {
+    res.status(500).json({ error: 'Failed to read manifest' });
+  }
 });
 
 // DELETE /api/dump/:id

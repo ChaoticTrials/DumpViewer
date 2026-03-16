@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import './App.css';
-import type { ParsedDump, SelectedFile } from './types';
-import { parseDump, categorizeFiles } from './utils/zipParser';
+import type { ParsedDump, SelectedFile } from './manifest/index';
+import { parseDump, categorizeFiles } from './manifest/index';
 import DropZone from './components/DropZone';
 import ManifestBanner from './components/ManifestBanner';
 import FileTree from './components/FileTree';
@@ -10,6 +10,8 @@ import ThemeToggle from './components/ThemeToggle';
 import { HeaderLogo } from './components/HeaderLogo.tsx';
 import NoDumpPage from './components/NoDumpPage';
 
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 export default function App() {
   const [dump, setDump] = useState<ParsedDump | null>(null);
   const [selected, setSelected] = useState<SelectedFile | null>(null);
@@ -17,10 +19,12 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [manifestId, setManifestId] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [expiresAt, setExpiresAt] = useState<Date | null | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(async (file: File) => {
     setError(undefined);
+    setExpiresAt(undefined); // "Local" until the server provides an expiry date
     setLoading(true);
     try {
       const parsed = await parseDump(file);
@@ -43,13 +47,24 @@ export default function App() {
     return () => window.removeEventListener('dump-upload', handler);
   }, [handleFile]);
 
-  // On mount, check URL for a manifest ID and fetch dump if API URL is configured
+  // On mount, check URL for a manifest ID and fetch dump if API URL is configured.
+  // Non-UUID paths and UUID paths without a backend are redirected to /.
   useEffect(() => {
     const raw = window.location.pathname.replace(/^\//, '');
-    if (!raw || !/^[a-zA-Z0-9_-]+$/.test(raw)) return;
+    if (!raw) return;
 
-    const apiUrl = import.meta.env.VITE_API_URL;
-    if (!apiUrl) return;
+    // Not a UUID v4 → redirect to home
+    if (!UUID_V4_RE.test(raw)) {
+      window.history.replaceState({}, '', '/');
+      return;
+    }
+
+    const apiUrl = import.meta.env.VITE_API_URL as string | undefined;
+    // UUID v4 but no backend configured → redirect to home
+    if (!apiUrl) {
+      window.history.replaceState({}, '', '/');
+      return;
+    }
 
     setManifestId(raw);
     setLoading(true);
@@ -57,9 +72,14 @@ export default function App() {
     fetch(`${apiUrl}/api/dump/${raw}`)
       .then(async (res) => {
         if (res.ok) {
+          // Capture expiry header before consuming the body.
+          // `Expires` is a CORS-safe header (always exposed); fall back to custom `X-Expires-At`.
+          const expiresHeader = res.headers.get('Expires') || res.headers.get('X-Expires-At');
           const blob = await res.blob();
           const file = new File([blob], `${raw}.zip`);
           await handleFile(file);
+          const d = expiresHeader ? new Date(expiresHeader) : null;
+          setExpiresAt(d && !isNaN(d.getTime()) ? d : null);
         } else {
           setNotFound(true);
           setLoading(false);
@@ -97,9 +117,7 @@ export default function App() {
         </header>
         <div className="empty-state" style={{ height: 'calc(100dvh - var(--header-h, 48px))' }}>
           <span className="empty-state-icon">⏳</span>
-          <span className="empty-state-text">
-            {manifestId ? `Loading dump for ${manifestId}…` : 'Parsing dump file…'}
-          </span>
+          <span className="empty-state-text">{manifestId ? `Loading dump for ${manifestId}…` : 'Parsing dump file…'}</span>
         </div>
       </div>
     );
@@ -125,9 +143,11 @@ export default function App() {
     <div className="app">
       <ManifestBanner
         manifest={dump.manifest}
+        expiresAt={expiresAt}
         onReset={() => {
           setDump(null);
           setSelected(null);
+          setExpiresAt(undefined);
           window.history.pushState({}, '', '/');
         }}
         onUpload={() => fileInputRef.current?.click()}

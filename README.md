@@ -36,9 +36,9 @@ Drop a `.zip` onto the drop zone, or click it to open a file picker. Everything 
 
 You can also navigate directly to `/<id>` to view a dump that was previously uploaded to the server.
 
-### As an admin (with upload token)
+### As an admin (with auth token)
 
-When the server has `AUTH_TOKEN` set, an **Upload token** field appears in the URL input section. Enter the token before clicking **Open** to store the dump on the server.
+When the server has `AUTH_TOKEN` set, an **Auth token** field appears in the URL input section. Enter the token before clicking **Open** to store the dump on the server.
 
 The token is only required for write operations (upload, import, delete, list). Drag-and-drop and viewing already-stored dumps at `/<id>` are always public.
 
@@ -85,12 +85,12 @@ Change the host port (`3001:3001` → `8080:3001`) if needed.
 
 ### Environment variables
 
-| Variable         | Default      | Description                                                                                                                                                      |
-|------------------|--------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `AUTH_TOKEN`     | *(empty)*    | Secret token required for upload, import, delete, and list. Leave empty for open access. Generate with `openssl rand -hex 32`.                                   |
-| `ALLOWED_ORIGIN` | `*`          | Value for the `Access-Control-Allow-Origin` response header. Set to your frontend's exact origin (e.g. `https://dumps.example.com`) for a production deployment. |
-| `DUMPS_DIR`      | `./dumps`    | Directory where uploaded zip files are stored. Pre-set to `/dumps` in the Docker image.                                                                          |
-| `PORT`           | `3001`       | Port the server listens on inside the container.                                                                                                                 |
+| Variable         | Default   | Description                                                                                                                                                      |
+| ---------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_TOKEN`     | _(empty)_ | Secret token required for upload, import, delete, and list. Leave empty for open access. Generate with `openssl rand -hex 32`.                                   |
+| `ALLOWED_ORIGIN` | `*`       | Value for the `Access-Control-Allow-Origin` response header. Set to your frontend's exact origin (e.g. `https://dumps.example.com`) for a production deployment. |
+| `DUMPS_DIR`      | `./dumps` | Directory where uploaded zip files are stored. Pre-set to `/dumps` in the Docker image.                                                                          |
+| `PORT`           | `3001`    | Port the server listens on inside the container.                                                                                                                 |
 
 ### Persisting dumps
 
@@ -110,6 +110,7 @@ Each dump has a TTL set at upload time (see `ttl` in [API.md](API.md)). The serv
 The server speaks plain HTTP. For production, put it behind a reverse proxy:
 
 **nginx:**
+
 ```nginx
 server {
     listen 443 ssl;
@@ -124,6 +125,7 @@ server {
 ```
 
 **Caddy:**
+
 ```
 dumps.example.com {
     reverse_proxy localhost:3001
@@ -137,7 +139,7 @@ Set `ALLOWED_ORIGIN: 'https://dumps.example.com'` in your compose file when rest
 ## URL routing
 
 | URL              | Behaviour                                      |
-|------------------|------------------------------------------------|
+| ---------------- | ---------------------------------------------- |
 | `/`              | Drop zone — open a local file or load from URL |
 | `/<manifest-id>` | Load a specific dump from the backend          |
 
@@ -154,6 +156,15 @@ Every uploaded zip is validated before being stored:
 - `manifest.json` must include `manifest_version` (number), `manifest_id` (UUID v4), `versions.skyblockbuilder` (string), `versions.minecraft` (string), and `files` (array)
 
 This ensures only genuine Skyblock Builder dumps can be stored.
+
+### Supported manifest versions
+
+| Version | Changed-values format                              | Notes                                                               |
+| :-----: | -------------------------------------------------- | ------------------------------------------------------------------- |
+|   v1    | JSON5 subset (`config/changed_values/<name>`)      | Line-level diff highlighting                                        |
+|   v2    | Unified diff (`config/changed_values/<base>.diff`) | Diff tab with syntax highlighting; adds `hashes` field for mod JARs |
+
+The frontend auto-detects the manifest version and renders the appropriate UI. Adding v3 in the future only requires a new `manifest/v3/` module.
 
 ---
 
@@ -201,7 +212,7 @@ All values are optional — the defaults above are used if not set. Uncomment `A
 ### Available scripts
 
 | Command                 | Description                                        |
-|-------------------------|----------------------------------------------------|
+| ----------------------- | -------------------------------------------------- |
 | `npm run dev`           | Start frontend + backend in development mode       |
 | `npm run dev:frontend`  | Start frontend only                                |
 | `npm run dev:backend`   | Start backend only                                 |

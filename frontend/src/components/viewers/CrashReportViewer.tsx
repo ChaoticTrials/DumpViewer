@@ -18,9 +18,7 @@ function parseCrashReport(content: string) {
     if (
       !exception &&
       description &&
-      (line.match(/^[a-z][\w.]+Exception:/) ||
-        line.match(/^[a-z][\w.]+Error:/) ||
-        line.match(/^\w[\w.]+Exception$/))
+      (line.match(/^[a-z][\w.]+Exception:/) || line.match(/^[a-z][\w.]+Error:/) || line.match(/^\w[\w.]+Exception$/))
     ) {
       // Collect multiline exception (may span several lines before "at ...")
       const excLines: string[] = [line];

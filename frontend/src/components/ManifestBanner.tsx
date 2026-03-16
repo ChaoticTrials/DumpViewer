@@ -1,10 +1,12 @@
-import type { Manifest } from '../types';
+import type { AnyManifest } from '../manifest/index';
+import { formatRelativeExpiry } from '../utils/formatExpiry';
 import ThemeToggle from './ThemeToggle';
 import * as React from 'react';
 import { HeaderLogo } from './HeaderLogo.tsx';
 
 interface Props {
-  manifest: Manifest;
+  manifest: AnyManifest;
+  expiresAt?: Date | null;
   onReset: () => void;
   onUpload: () => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
@@ -19,13 +21,39 @@ const SETTING_LABELS: Record<string, string> = {
   world_data: 'World Data',
 };
 
-export default function ManifestBanner({ manifest, onReset, onUpload, fileInputRef }: Props) {
+function ExpiryBadge({ expiresAt }: { expiresAt: Date | null | undefined }) {
+  if (expiresAt === undefined) {
+    return (
+      <span className="badge" style={{ opacity: 0.6 }} title="Not stored on any server — only available in this browser tab">
+        Local
+      </span>
+    );
+  }
+  if (expiresAt === null) {
+    return (
+      <span className="badge" style={{ opacity: 0.6 }} title="Stored on this server with no expiry set">
+        Temporary
+      </span>
+    );
+  }
+  const label = formatRelativeExpiry(expiresAt);
+  return (
+    <span className="badge" title={expiresAt.toLocaleString()}>
+      {label}
+    </span>
+  );
+}
+
+export default function ManifestBanner({ manifest, expiresAt, onReset, onUpload, fileInputRef }: Props) {
   return (
     <header className="header">
       <HeaderLogo />
       <span className="header-title">Dump Viewer</span>
       <span className="header-sep">|</span>
-      <div className="header-meta">
+      <div className="header-meta" style={{ flexWrap: 'wrap' }}>
+        <span className="badge">
+          <span className="badge-label">v{manifest.manifest_version}</span>
+        </span>
         <span className="badge">
           <span className="badge-label">id</span>
           {manifest.manifest_id}
@@ -88,6 +116,10 @@ export default function ManifestBanner({ manifest, onReset, onUpload, fileInputR
             </span>
           ),
         )}
+        <>
+          <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 4px' }} />
+          <ExpiryBadge expiresAt={expiresAt} />
+        </>
       </div>
       <div className="header-spacer" />
       <ThemeToggle />

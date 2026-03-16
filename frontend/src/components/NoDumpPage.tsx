@@ -17,12 +17,8 @@ export default function NoDumpPage({ manifestId }: Props) {
     >
       <span style={{ fontSize: 48, lineHeight: 1 }}>📭</span>
       <div style={{ textAlign: 'center' }}>
-        <p style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-h)', margin: '0 0 8px' }}>
-          No dump available
-        </p>
-        <p style={{ fontSize: 13, margin: '0 0 4px', opacity: 0.7 }}>
-          There is no dump stored for:
-        </p>
+        <p style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-h)', margin: '0 0 8px' }}>No dump available</p>
+        <p style={{ fontSize: 13, margin: '0 0 4px', opacity: 0.7 }}>There is no dump stored for:</p>
         <code
           style={{
             fontSize: 13,

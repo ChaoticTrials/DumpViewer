@@ -37,6 +37,26 @@ function buildValidSbbZip(manifestId: string): Buffer {
   return zip.toBuffer();
 }
 
+// --- Helper: build a valid v2 SBB zip buffer with hashes ---
+function buildValidSbbZipV2(manifestId: string): Buffer {
+  const zip = new AdmZip();
+  const manifest = {
+    manifest_version: 2,
+    manifest_id: manifestId,
+    settings: {},
+    versions: {
+      skyblockbuilder: '2.0',
+      minecraft: '1.21.1',
+    },
+    files: [],
+    hashes: {
+      somemod: { md5: 'abc123', sha1: 'def456', sha512: 'ghi789' },
+    },
+  };
+  zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest), 'utf-8'));
+  return zip.toBuffer();
+}
+
 // --- Helper: build a zip without manifest.json ---
 function buildZipNoManifest(): Buffer {
   const zip = new AdmZip();
@@ -178,9 +198,15 @@ describe('parseTtlMs()', () => {
 // ============================================================
 
 describe('validateAndExtractManifestId()', () => {
-  it('extracts manifest_id from a valid zip', () => {
+  it('extracts manifest_id from a valid v1 zip', () => {
     const id = '550e8400-e29b-41d4-a716-446655440000';
     const buf = buildValidSbbZip(id);
+    expect(validateAndExtractManifestId(buf)).toBe(id);
+  });
+
+  it('accepts a v2 manifest with hashes', () => {
+    const id = '550e8400-e29b-41d4-a716-446655440001';
+    const buf = buildValidSbbZipV2(id);
     expect(validateAndExtractManifestId(buf)).toBe(id);
   });
 
@@ -249,9 +275,7 @@ describe('POST /api/dump/upload', () => {
   });
 
   it('returns 422 when the uploaded buffer is not a valid zip', async () => {
-    const res = await request(app)
-      .post('/api/dump/upload')
-      .attach('file', Buffer.from('this is not a zip'), 'bad.zip');
+    const res = await request(app).post('/api/dump/upload').attach('file', Buffer.from('this is not a zip'), 'bad.zip');
     expect(res.status).toBe(422);
     expect(res.body).toHaveProperty('error');
   });
@@ -299,6 +323,57 @@ describe('GET /api/dump/:id (after upload)', () => {
     const res = await request(app).get(`/api/dump/${manifestId}`);
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/application\/zip/);
+  });
+
+  it('includes X-Expires-At and Expires headers after upload', async () => {
+    const res = await request(app).get(`/api/dump/${manifestId}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['x-expires-at']).toBeDefined();
+    const expiresAt = new Date(res.headers['x-expires-at'] as string);
+    expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
+    expect(res.headers['expires']).toBeDefined();
+    const expires = new Date(res.headers['expires'] as string);
+    expect(expires.getTime()).toBeGreaterThan(Date.now());
+  });
+});
+
+// ============================================================
+// GET /api/dump/:id/manifest
+// ============================================================
+
+describe('GET /api/dump/:id/manifest', () => {
+  const manifestId = 'b2c3d4e5-f6a7-4890-bc12-de3456fa7890';
+
+  beforeAll(() => {
+    // Write directly to disk to avoid hitting the upload rate limiter
+    const buf = buildValidSbbZipV2(manifestId);
+    const zipPath = path.join(TEST_DUMPS_DIR, `${manifestId}.zip`);
+    fs.writeFileSync(zipPath, buf);
+    fs.writeFileSync(
+      path.join(TEST_DUMPS_DIR, `${manifestId}.meta`),
+      JSON.stringify({ expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000 }),
+    );
+  });
+
+  it('returns parsed manifest JSON for a stored dump', async () => {
+    const res = await request(app).get(`/api/dump/${manifestId}/manifest`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('manifest_id', manifestId);
+    expect(res.body).toHaveProperty('manifest_version', 2);
+    expect(res.body).toHaveProperty('hashes');
+    expect(res.body.hashes).toHaveProperty('somemod');
+  });
+
+  it('returns 404 for an unknown id', async () => {
+    const res = await request(app).get('/api/dump/00000000-0000-4000-8000-000000000099/manifest');
+    expect(res.status).toBe(404);
+    expect(res.body).toHaveProperty('error');
+  });
+
+  it('returns 400 for an invalid id', async () => {
+    const res = await request(app).get('/api/dump/not-a-uuid/manifest');
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
   });
 });
 
@@ -382,7 +457,7 @@ describe('DELETE /api/dump/:id', () => {
 // module-level const picks up the value.
 // ============================================================
 
-describe('Upload token protection', () => {
+describe('Auth token protection', () => {
   let tokenApp: Express;
   const TOKEN = 'test-secret-token';
 
@@ -407,10 +482,7 @@ describe('Upload token protection', () => {
 
   it('POST /api/dump/upload returns 401 with wrong token', async () => {
     const buf = buildValidSbbZip('f47ac10b-58cc-4372-a567-0e02b2c3d480');
-    const res = await request(tokenApp)
-      .post('/api/dump/upload')
-      .set('Authorization', 'Bearer wrong-token')
-      .attach('file', buf, 'dump.zip');
+    const res = await request(tokenApp).post('/api/dump/upload').set('Authorization', 'Bearer wrong-token').attach('file', buf, 'dump.zip');
     expect(res.status).toBe(401);
     expect(res.body).toHaveProperty('error');
   });
@@ -418,21 +490,23 @@ describe('Upload token protection', () => {
   it('POST /api/dump/upload returns 200 with correct Bearer token', async () => {
     const bearerId = 'f47ac10b-58cc-4372-a567-0e02b2c3d481';
     const buf = buildValidSbbZip(bearerId);
-    const res = await request(tokenApp)
-      .post('/api/dump/upload')
-      .set('Authorization', `Bearer ${TOKEN}`)
-      .attach('file', buf, 'dump.zip');
+    const res = await request(tokenApp).post('/api/dump/upload').set('Authorization', `Bearer ${TOKEN}`).attach('file', buf, 'dump.zip');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('id', bearerId);
   });
 
-  it('POST /api/dump/upload returns 200 with correct X-Upload-Token header', async () => {
+  it('POST /api/dump/upload returns 401 with X-Upload-Token header (no longer supported)', async () => {
     const headerId = 'f47ac10b-58cc-4372-a567-0e02b2c3d482';
     const buf = buildValidSbbZip(headerId);
-    const res = await request(tokenApp)
-      .post('/api/dump/upload')
-      .set('X-Upload-Token', TOKEN)
-      .attach('file', buf, 'dump.zip');
+    const res = await request(tokenApp).post('/api/dump/upload').set('X-Upload-Token', TOKEN).attach('file', buf, 'dump.zip');
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('error');
+  });
+
+  it('POST /api/dump/upload returns 200 with correct X-Auth-Token header', async () => {
+    const headerId = 'f47ac10b-58cc-4372-a567-0e02b2c3d483';
+    const buf = buildValidSbbZip(headerId);
+    const res = await request(tokenApp).post('/api/dump/upload').set('X-Auth-Token', TOKEN).attach('file', buf, 'dump.zip');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('id', headerId);
   });

@@ -65,9 +65,7 @@ export function getConfigParseError(content: string): ConfigParseError | undefin
     }
 
     // Clean up the raw message (remove the "at line X column Y" part, we show it ourselves)
-    const cleanMsg = msg
-      .replace(/\s*(in JSON)?\s*at (position \d+|line \d+(,? column \d+)?).*$/i, '')
-      .trim();
+    const cleanMsg = msg.replace(/\s*(in JSON)?\s*at (position \d+|line \d+(,? column \d+)?).*$/i, '').trim();
 
     return { message: cleanMsg || msg, line, hint };
   }

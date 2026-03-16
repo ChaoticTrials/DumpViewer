@@ -8,6 +8,12 @@ interface Props {
   error?: string;
 }
 
+function getHintText(apiUrl: string | undefined, token: string): string {
+  if (!apiUrl) return 'No backend — dropped files are processed entirely in your browser.';
+  if (token) return 'File will be saved to server and accessible via its manifest ID.';
+  return 'Add an auth token to save the dump on the server; otherwise the URL import is not stored.';
+}
+
 export default function DropZone({ onFile, error }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -48,7 +54,7 @@ export default function DropZone({ onFile, error }: Props) {
         });
         if (!resp.ok) {
           if (resp.status === 401) {
-            setUrlError('Invalid upload token.');
+            setUrlError('Invalid auth token.');
             setUrlLoading(false);
             return;
           }
@@ -111,6 +117,9 @@ export default function DropZone({ onFile, error }: Props) {
         <span className="dropzone-icon">📦</span>
         <p className="dropzone-title">Drop a dump .zip here</p>
         <p className="dropzone-sub">or click to browse</p>
+        <p className="dropzone-sub" style={{ marginTop: 4, opacity: 0.5, fontSize: 11 }}>
+          Your file never leaves this browser
+        </p>
       </div>
       {error && <p className="dropzone-error">⚠ {error}</p>}
       <input ref={inputRef} type="file" accept=".zip" style={{ display: 'none' }} onChange={handleChange} />
@@ -143,7 +152,7 @@ export default function DropZone({ onFile, error }: Props) {
             <span style={{ fontSize: 11, color: 'var(--text)', opacity: 0.7 }}>Auth token</span>
             <input
               type="password"
-              placeholder="Enter upload token"
+              placeholder="Enter auth token"
               value={token}
               onChange={(e) => setToken(e.target.value)}
               style={{
@@ -204,11 +213,7 @@ export default function DropZone({ onFile, error }: Props) {
           </button>
         </div>
         {urlError && <p style={{ color: 'var(--log-error)', fontSize: 12, margin: 0, textAlign: 'center' }}>{urlError}</p>}
-        <p style={{ fontSize: 11, opacity: 0.5, margin: 0, textAlign: 'center' }}>
-          {API_URL
-            ? 'Files are stored on the server and accessible via URL.'
-            : 'Backend not configured — only direct URLs with CORS headers are supported.'}
-        </p>
+        <p style={{ fontSize: 11, opacity: 0.5, margin: 0, textAlign: 'center' }}>{getHintText(API_URL, token)}</p>
       </div>
     </div>
   );

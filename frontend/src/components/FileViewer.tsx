@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import { useHighlighterTheme } from '../utils/useHighlighterTheme';
-import type { DumpFile, ParsedDump, SelectedFile } from '../types';
+import type { DumpFile, ParsedDump, SelectedFile } from '../manifest/index';
 import ConfigViewer from './viewers/ConfigViewer';
 import LogViewer from './viewers/LogViewer';
 import CrashReportViewer from './viewers/CrashReportViewer';
@@ -16,7 +16,8 @@ interface Props {
 // Strip RTLO (U+202E), null bytes, and other bidirectional override characters
 // that could disguise a filename's apparent extension in the browser save dialog.
 function sanitizeFilename(name: string): string {
-  return name.replace(/[\u202e\u200f\u200e\u202b\u202a\u00]/g, '');
+  // eslint-disable-next-line no-control-regex
+  return name.replace(/[\u202e\u200f\u200e\u202b\u202a\u0000]/g, '');
 }
 
 function downloadFile(filename: string, content: string) {
@@ -144,7 +145,7 @@ export default function FileViewer({ selected, dump }: Props) {
             </button>
           </div>
         </div>
-        <ConfigViewer fullContent={fullContent} changedContent={changedContent} />
+        <ConfigViewer fullContent={fullContent} changedContent={changedContent} changedFormat={entry.changedFormat} />
       </div>
     );
   }
