@@ -2,8 +2,7 @@ name: Build and Push Docker Image
 
 on:
   push:
-    tags:
-      - '*'
+    tags: ['*']
 
 jobs:
   test:
