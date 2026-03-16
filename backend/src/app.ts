@@ -10,7 +10,16 @@ import { fileURLToPath } from 'node:url';
 
 const DUMPS_DIR = path.resolve(process.env.DUMPS_DIR ?? './dumps');
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? '*';
-const AUTH_TOKEN = process.env.AUTH_TOKEN ?? '';
+function loadAuthToken(): string {
+  if (process.env.AUTH_TOKEN) return process.env.AUTH_TOKEN;
+  const file = process.env.AUTH_TOKEN_FILE ?? '/run/secrets/dumpviewer_token';
+  try {
+    return fs.readFileSync(file, 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+const AUTH_TOKEN = loadAuthToken();
 
 const ONE_YEAR_SECS = 365 * 24 * 60 * 60;
 const ONE_YEAR_MS = ONE_YEAR_SECS * 1000;
@@ -23,7 +32,7 @@ const MAX_MANIFEST_ENTRY_BYTES = 10 * 1024 * 1024; // 10 MB for manifest.json
 const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 // Rate limiter for POST endpoints: max 10 requests per 10s (avg 1/sec)
-const uploadLimiter = rateLimit({ windowMs: 10_000, max: 10, standardHeaders: true, legacyHeaders: false });
+const uploadLimiter = rateLimit({ windowMs: 10_000, limit: 10, standardHeaders: true, legacyHeaders: false });
 
 // Ensure dumps directory exists
 fs.mkdirSync(DUMPS_DIR, { recursive: true });
