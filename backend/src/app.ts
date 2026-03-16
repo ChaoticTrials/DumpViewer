@@ -10,7 +10,16 @@ import { fileURLToPath } from 'node:url';
 
 const DUMPS_DIR = path.resolve(process.env.DUMPS_DIR ?? './dumps');
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? '*';
-const AUTH_TOKEN = process.env.AUTH_TOKEN ?? '';
+function loadAuthToken(): string {
+  if (process.env.AUTH_TOKEN) return process.env.AUTH_TOKEN;
+  const file = process.env.AUTH_TOKEN_FILE ?? '/run/secrets/dumpviewer_token';
+  try {
+    return fs.readFileSync(file, 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+const AUTH_TOKEN = loadAuthToken();
 
 const ONE_YEAR_SECS = 365 * 24 * 60 * 60;
 const ONE_YEAR_MS = ONE_YEAR_SECS * 1000;
