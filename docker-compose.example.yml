@@ -6,6 +6,7 @@ services:
     environment:
       # Set a token to protect the upload endpoint (e.g. openssl rand -hex 32).
       # Leave empty to allow unauthenticated uploads.
+      # AUTH_TOKEN_FILE or docker secret 'dumpviewer_token' are valid alternatives.
       AUTH_TOKEN: ''
       # Set this to the origin of your frontend (e.g. https://dumps.example.com).
       # Leave empty to allow requests from any origin.
