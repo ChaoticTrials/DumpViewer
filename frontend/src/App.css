@@ -19,16 +19,22 @@
 /* ── Header ─────────────────────────────────────────────── */
 
 .header {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 10px;
-  padding: 0 14px;
   min-height: 54px;
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   font-size: 14px;
-  flex-wrap: wrap;
+  position: relative;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
 }
 
 .header-title {
@@ -38,16 +44,32 @@
   white-space: nowrap;
 }
 
-.header-sep {
-  color: var(--border);
-  user-select: none;
-}
-
 .header-meta {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   flex-wrap: wrap;
+  position: relative;
+  padding: 6px 4px;
+  min-width: 0;
+  align-self: stretch;
+}
+
+.header-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  flex-shrink: 0;
+}
+
+.header-actions--column {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 14px;
 }
 
 .badge {
@@ -75,13 +97,10 @@
   border-color: var(--green-border);
 }
 
-.header-spacer {
-  flex: 1;
-}
-
 .upload-btn {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 0 14px;
   height: 34px;
@@ -213,6 +232,127 @@
   color: var(--green-text);
   border: 1px solid var(--green-border);
   flex-shrink: 0;
+}
+
+/* ── Sidebar overlay & burger (mobile) ───────────────────── */
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  background: rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+.burger-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.burger-btn:hover {
+  background: var(--surface-hover);
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100dvh;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    z-index: 200;
+    border-radius: 0;
+    width: 280px;
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay {
+    display: block;
+  }
+
+  .burger-btn {
+    display: flex;
+  }
+}
+
+/* ── Badge collapse ──────────────────────────────────────── */
+
+.badge-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.badge-content.badge-content-hidden {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.badge-collapse-btn {
+  cursor: pointer;
+  font-family: var(--sans);
+  background: var(--surface-subtle);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.badge-collapse-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-h);
+}
+
+.badge-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-top: none;
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(600px, calc(100vw - 32px));
+  border-radius: 0 0 8px 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.badge-section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  align-items: center;
+}
+
+.badge-section-hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0;
+  width: 100%;
 }
 
 /* ── Main viewer area ─────────────────────────────────────── */

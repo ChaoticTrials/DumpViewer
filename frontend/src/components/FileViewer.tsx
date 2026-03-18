@@ -101,7 +101,7 @@ function FontCtrl({ size, onDec, onInc, onReset }: FontCtrlProps) {
   );
 }
 
-const DEFAULT_FONT_SIZE = 16;
+const DEFAULT_FONT_SIZE = 14;
 
 export default function FileViewer({ selected, dump }: Props) {
   const [viewerFontSize, setViewerFontSize] = useState(DEFAULT_FONT_SIZE);

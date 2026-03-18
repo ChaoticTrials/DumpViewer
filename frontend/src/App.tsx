@@ -12,6 +12,20 @@ import NoDumpPage from './components/NoDumpPage';
 
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
+function SimpleHeader() {
+  return (
+    <header className="header">
+      <div className="header-brand">
+        <HeaderLogo />
+        <span className="header-title">Dump Viewer</span>
+      </div>
+      <div className="header-actions" style={{ gridColumn: 3 }}>
+        <ThemeToggle />
+      </div>
+    </header>
+  );
+}
+
 export default function App() {
   const [dump, setDump] = useState<ParsedDump | null>(null);
   const [selected, setSelected] = useState<SelectedFile | null>(null);
@@ -20,6 +34,7 @@ export default function App() {
   const [manifestId, setManifestId] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [expiresAt, setExpiresAt] = useState<Date | null | undefined>(undefined);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(async (file: File) => {
@@ -97,12 +112,7 @@ export default function App() {
   if (notFound && manifestId) {
     return (
       <div className="app">
-        <header className="header">
-          <HeaderLogo />
-          <span className="header-title">Dump Viewer</span>
-          <span style={{ flex: 1 }} />
-          <ThemeToggle />
-        </header>
+        <SimpleHeader />
         <NoDumpPage manifestId={manifestId} />
       </div>
     );
@@ -111,12 +121,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="app">
-        <header className="header">
-          <HeaderLogo />
-          <span className="header-title">Dump Viewer</span>
-          <span style={{ flex: 1 }} />
-          <ThemeToggle />
-        </header>
+        <SimpleHeader />
         <div className="empty-state" style={{ height: 'calc(100dvh - var(--header-h, 48px))' }}>
           <span className="empty-state-icon">⏳</span>
           <span className="empty-state-text">{manifestId ? `Loading dump for ${manifestId}…` : 'Parsing dump file…'}</span>
@@ -128,12 +133,7 @@ export default function App() {
   if (!dump) {
     return (
       <div className="app">
-        <header className="header">
-          <HeaderLogo />
-          <span className="header-title">Dump Viewer</span>
-          <span style={{ flex: 1 }} />
-          <ThemeToggle />
-        </header>
+        <SimpleHeader />
         <DropZone onFile={handleFile} error={error} />
       </div>
     );
@@ -154,9 +154,21 @@ export default function App() {
         }}
         onUpload={() => fileInputRef.current?.click()}
         fileInputRef={fileInputRef}
+        onBurgerClick={() => setSidebarOpen(true)}
       />
       <div className="app-body">
-        <FileTree cat={cat} files={dump.files} selected={selected} onSelect={setSelected} />
+        {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
+        <FileTree
+          cat={cat}
+          files={dump.files}
+          selected={selected}
+          onSelect={(sel) => {
+            setSelected(sel);
+            setSidebarOpen(false);
+          }}
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+        />
         <FileViewer selected={selected} dump={dump} />
       </div>
     </div>

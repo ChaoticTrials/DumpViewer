@@ -109,6 +109,7 @@ export default function ThemeToggle() {
     border: 'none',
     cursor: 'pointer',
     transition: 'background 0.15s, color 0.15s',
+    width: '50%',
   };
 
   return (

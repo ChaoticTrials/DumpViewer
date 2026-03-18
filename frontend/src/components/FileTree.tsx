@@ -21,6 +21,8 @@ interface Props {
   files: Map<string, DumpFile>;
   selected: SelectedFile | null;
   onSelect: (sel: SelectedFile) => void;
+  open?: boolean;
+  onClose?: () => void;
 }
 
 interface SectionProps {
@@ -168,9 +170,14 @@ function isFileSelected(sel: SelectedFile | null, file: DumpFile): boolean {
   return sel.file.path === file.path;
 }
 
-export default function FileTree({ cat, files, selected, onSelect }: Props) {
+export default function FileTree({ cat, files, selected, onSelect, open, onClose }: Props) {
+  function handleSelect(sel: SelectedFile) {
+    onSelect(sel);
+    onClose?.();
+  }
+
   return (
-    <nav className="sidebar">
+    <nav className={`sidebar${open ? ' sidebar-open' : ''}`}>
       {cat.configs.length > 0 && (
         <Section title="Configs" icon={<FaCode style={{ fontSize: 12 }} />}>
           {cat.configs.map((entry) => (
@@ -182,7 +189,7 @@ export default function FileTree({ cat, files, selected, onSelect }: Props) {
               badge={configChangeBadge(entry, files)}
               hasError={configHasParseError(entry, files)}
               isLarge={configIsLarge(entry, files)}
-              onClick={() => onSelect({ kind: 'config', entry })}
+              onClick={() => handleSelect({ kind: 'config', entry })}
             />
           ))}
         </Section>
@@ -200,7 +207,7 @@ export default function FileTree({ cat, files, selected, onSelect }: Props) {
                   name={file.name}
                   active={isFileSelected(selected, file)}
                   isLarge={file.size > LARGE_FILE_THRESHOLD}
-                  onClick={() => onSelect({ kind: 'file', file })}
+                  onClick={() => handleSelect({ kind: 'file', file })}
                 />
               ))}
             </>
@@ -215,7 +222,7 @@ export default function FileTree({ cat, files, selected, onSelect }: Props) {
                   name={file.name}
                   active={isFileSelected(selected, file)}
                   isLarge={file.size > LARGE_FILE_THRESHOLD}
-                  onClick={() => onSelect({ kind: 'file', file })}
+                  onClick={() => handleSelect({ kind: 'file', file })}
                 />
               ))}
             </>
@@ -229,7 +236,7 @@ export default function FileTree({ cat, files, selected, onSelect }: Props) {
                   icon={<FileIcon file={file} />}
                   name={file.name}
                   active={isFileSelected(selected, file)}
-                  onClick={() => onSelect({ kind: 'file', file })}
+                  onClick={() => handleSelect({ kind: 'file', file })}
                 />
               ))}
             </>
@@ -244,7 +251,7 @@ export default function FileTree({ cat, files, selected, onSelect }: Props) {
                   name={file.name}
                   active={isFileSelected(selected, file)}
                   isLarge={file.size > LARGE_FILE_THRESHOLD}
-                  onClick={() => onSelect({ kind: 'file', file })}
+                  onClick={() => handleSelect({ kind: 'file', file })}
                 />
               ))}
             </>
@@ -260,7 +267,7 @@ export default function FileTree({ cat, files, selected, onSelect }: Props) {
               icon={<FileIcon file={file} />}
               name={file.name}
               active={isFileSelected(selected, file)}
-              onClick={() => onSelect({ kind: 'file', file })}
+              onClick={() => handleSelect({ kind: 'file', file })}
             />
           ))}
         </Section>
@@ -274,7 +281,7 @@ export default function FileTree({ cat, files, selected, onSelect }: Props) {
               icon={<FileIcon file={file} />}
               name={file.name}
               active={isFileSelected(selected, file)}
-              onClick={() => onSelect({ kind: 'file', file })}
+              onClick={() => handleSelect({ kind: 'file', file })}
             />
           ))}
         </Section>

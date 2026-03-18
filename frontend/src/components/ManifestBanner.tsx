@@ -1,3 +1,4 @@
+import { useState, useRef, useLayoutEffect } from 'react';
 import type { AnyManifest } from '../manifest';
 import { formatRelativeExpiry } from '../utils/formatExpiry';
 import ThemeToggle from './ThemeToggle';
@@ -10,6 +11,7 @@ interface Props {
   onReset: () => void;
   onUpload: () => void;
   fileInputRef: RefObject<HTMLInputElement | null>;
+  onBurgerClick?: () => void;
 }
 
 const SETTING_LABELS: Record<string, string> = {
@@ -20,6 +22,8 @@ const SETTING_LABELS: Record<string, string> = {
   crash_report: 'Crash Report',
   world_data: 'World Data',
 };
+
+const dividerStyle = { width: 1, height: 20, background: 'var(--border)', margin: '0 4px', flexShrink: 0 } as const;
 
 function ExpiryBadge({ expiresAt }: { expiresAt: Date | null | undefined }) {
   if (expiresAt === undefined) {
@@ -44,99 +48,178 @@ function ExpiryBadge({ expiresAt }: { expiresAt: Date | null | undefined }) {
   );
 }
 
-export default function ManifestBanner({ manifest, expiresAt, onReset, onUpload, fileInputRef }: Props) {
+export default function ManifestBanner({ manifest, expiresAt, onReset, onUpload, fileInputRef, onBurgerClick }: Props) {
+  const badgeContentRef = useRef<HTMLDivElement>(null);
+  const [shouldCollapse, setShouldCollapse] = useState(false);
+  const [badgesOpen, setBadgesOpen] = useState(false);
+
+  useLayoutEffect(() => {
+    function measure(): boolean {
+      const content = badgeContentRef.current;
+      if (!content) return false;
+      return content.scrollHeight > 100;
+    }
+
+    const collapse = measure();
+    setShouldCollapse(collapse);
+    if (!collapse) setBadgesOpen(false);
+
+    function handleResize() {
+      setShouldCollapse(false);
+      requestAnimationFrame(() => {
+        const collapse = measure();
+        setShouldCollapse(collapse);
+        if (!collapse) setBadgesOpen(false);
+      });
+    }
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [manifest, expiresAt]);
+
+  // Version badges — used in flat measurement strip and in the dropdown's first section
+  const versionBadges = (
+    <>
+      <span className="badge">
+        <span className="badge-label">v{manifest.manifest_version}</span>
+      </span>
+      <span className="badge">
+        <span className="badge-label">id</span>
+        {manifest.manifest_id}
+      </span>
+      <span className="badge">
+        <span className="badge-label">MC</span>
+        {manifest.versions.minecraft}
+      </span>
+      {manifest.versions.forge && (
+        <span className="badge">
+          <span className="badge-label">Forge</span>
+          {manifest.versions.forge}
+        </span>
+      )}
+      {manifest.versions.neoforge && (
+        <span className="badge">
+          <span className="badge-label">NeoForge</span>
+          {manifest.versions.neoforge}
+        </span>
+      )}
+      <span className="badge">
+        <span className="badge-label">Skyblock Builder</span>
+        {manifest.versions.skyblockbuilder}
+      </span>
+      {manifest.versions.libx && (
+        <span className="badge">
+          <span className="badge-label">LibX</span>
+          {manifest.versions.libx}
+        </span>
+      )}
+      {manifest.versions.minemention && (
+        <span className="badge">
+          <span className="badge-label">MineMention</span>
+          {manifest.versions.minemention}
+        </span>
+      )}
+      {manifest.versions.skyguis && (
+        <span className="badge">
+          <span className="badge-label">Sky GUIs</span>
+          {manifest.versions.skyguis}
+        </span>
+      )}
+    </>
+  );
+
+  // Settings badges — second section
+  const settingsBadges = (
+    <>
+      {Object.entries(manifest.settings).map(([key, enabled]) =>
+        enabled ? (
+          <span key={key} className="badge badge-green">
+            ✓ {SETTING_LABELS[key] ?? key}
+          </span>
+        ) : (
+          <span
+            key={key}
+            className="badge"
+            style={{
+              background: 'rgba(248,113,113,0.08)',
+              color: '#f87171',
+              borderColor: 'rgba(248,113,113,0.3)',
+            }}
+          >
+            ✗ {SETTING_LABELS[key] ?? key}
+          </span>
+        ),
+      )}
+    </>
+  );
+
+  // Expiry badge — third section
+  const expiryEl = <ExpiryBadge expiresAt={expiresAt} />;
+
+  // Flat layout: used by the hidden measurement div and the always-visible badge strip
+  const flatBadges = (
+    <>
+      {versionBadges}
+      <span style={dividerStyle} />
+      {settingsBadges}
+      <span style={dividerStyle} />
+      {expiryEl}
+    </>
+  );
+
   return (
     <header className="header">
-      <HeaderLogo />
-      <span className="header-title">Dump Viewer</span>
-      <span className="header-sep">|</span>
-      <div className="header-meta" style={{ flexWrap: 'wrap' }}>
-        <span className="badge">
-          <span className="badge-label">v{manifest.manifest_version}</span>
-        </span>
-        <span className="badge">
-          <span className="badge-label">id</span>
-          {manifest.manifest_id}
-        </span>
-        <span className="badge">
-          <span className="badge-label">MC</span>
-          {manifest.versions.minecraft}
-        </span>
-        {manifest.versions.forge && (
-          <span className="badge">
-            <span className="badge-label">Forge</span>
-            {manifest.versions.forge}
-          </span>
+      <div className="header-brand">
+        {onBurgerClick && (
+          <button className="burger-btn" onClick={onBurgerClick} aria-label="Open sidebar">
+            ☰
+          </button>
         )}
-        {manifest.versions.neoforge && (
-          <span className="badge">
-            <span className="badge-label">NeoForge</span>
-            {manifest.versions.neoforge}
-          </span>
-        )}
-        <span className="badge">
-          <span className="badge-label">Skyblock Builder</span>
-          {manifest.versions.skyblockbuilder}
-        </span>
-        {manifest.versions.libx && (
-          <span className="badge">
-            <span className="badge-label">LibX</span>
-            {manifest.versions.libx}
-          </span>
-        )}
-        {manifest.versions.minemention && (
-          <span className="badge">
-            <span className="badge-label">MineMention</span>
-            {manifest.versions.minemention}
-          </span>
-        )}
-        {manifest.versions.skyguis && (
-          <span className="badge">
-            <span className="badge-label">Sky GUIs</span>
-            {manifest.versions.skyguis}
-          </span>
-        )}
-        <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 4px' }} />
-        {Object.entries(manifest.settings).map(([key, enabled]) =>
-          enabled ? (
-            <span key={key} className="badge badge-green">
-              ✓ {SETTING_LABELS[key] ?? key}
-            </span>
-          ) : (
-            <span
-              key={key}
-              className="badge"
-              style={{
-                background: 'rgba(248,113,113,0.08)',
-                color: '#f87171',
-                borderColor: 'rgba(248,113,113,0.3)',
-              }}
-            >
-              ✗ {SETTING_LABELS[key] ?? key}
-            </span>
-          ),
-        )}
-        <>
-          <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 4px' }} />
-          <ExpiryBadge expiresAt={expiresAt} />
-        </>
+        <HeaderLogo />
+        <span className="header-title">Dump Viewer</span>
       </div>
-      <div className="header-spacer" />
-      <ThemeToggle />
-      <button className="upload-btn" onClick={onUpload}>
-        ↑ Open Dump
-      </button>
-      <button
-        className="upload-btn"
-        onClick={onReset}
-        style={{
-          background: 'rgba(255,255,255,0.05)',
-          color: 'var(--text)',
-          borderColor: 'var(--border)',
-        }}
-      >
-        ✕ Close
-      </button>
+
+      <div className="header-meta">
+        {/* Always in DOM for scrollHeight measurement; hidden via CSS when collapsed */}
+        <div ref={badgeContentRef} className={`badge-content${shouldCollapse ? ' badge-content-hidden' : ''}`}>
+          {flatBadges}
+        </div>
+        {shouldCollapse && (
+          <button className="badge badge-collapse-btn" onClick={() => setBadgesOpen((v) => !v)}>
+            {badgesOpen ? '✕ Hide' : '▼ Info'}
+          </button>
+        )}
+      </div>
+
+      <div className={`header-actions${shouldCollapse ? ' header-actions--column' : ''}`}>
+        <ThemeToggle />
+        <button className="upload-btn" onClick={onUpload}>
+          ↑ Open Dump
+        </button>
+        <button
+          className="upload-btn"
+          onClick={onReset}
+          style={{
+            background: 'rgba(255,255,255,0.05)',
+            color: 'var(--text)',
+            borderColor: 'var(--border)',
+          }}
+        >
+          ✕ Close
+        </button>
+      </div>
+
+      {/* Dropdown: position: absolute on .header (position: relative), so left: 50% = viewport center */}
+      {shouldCollapse && badgesOpen && (
+        <div className="badge-dropdown">
+          <div className="badge-section">{versionBadges}</div>
+          <hr className="badge-section-hr" />
+          <div className="badge-section">{settingsBadges}</div>
+          <hr className="badge-section-hr" />
+          <div className="badge-section">{expiryEl}</div>
+        </div>
+      )}
+
       <input
         ref={fileInputRef}
         type="file"
