@@ -396,7 +396,7 @@ app.post('/api/dump/import', uploadLimiter, requireUploadToken, async (req, res)
     return;
   }
 
-  res.json({ id, url: '/api/dump/' + id });
+  res.json({ id });
 });
 
 // POST /api/dump/upload
@@ -426,7 +426,7 @@ app.post('/api/dump/upload', uploadLimiter, requireUploadToken, upload.single('f
     return;
   }
 
-  res.json({ id, url: '/api/dump/' + id });
+  res.json({ id });
 });
 
 // GET /api/dump/:id
@@ -659,9 +659,7 @@ app.get('/api/dump/:id/modpack', async (req, res) => {
     });
 
     const results = await Promise.allSettled(lookups);
-    const files = results
-      .map((r) => (r.status === 'fulfilled' ? r.value : null))
-      .filter((v): v is CfModEntry => v !== null);
+    const files = results.map((r) => (r.status === 'fulfilled' ? r.value : null)).filter((v): v is CfModEntry => v !== null);
 
     const modLoaders = loaderName && loaderVersion ? [{ id: `${loaderName}-${loaderVersion}`, primary: true }] : [];
 
@@ -691,13 +689,17 @@ app.get('/api/dump/:id/modpack', async (req, res) => {
       const mrId = ids.modrinth;
       const modVersion = versions[key] as string | undefined;
       if (mrId === null || !modVersion) return null;
-      return lookupModrinthVersion(mrId, mcVersion, modVersion, loaderName, AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]));
+      return lookupModrinthVersion(
+        mrId,
+        mcVersion,
+        modVersion,
+        loaderName,
+        AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]),
+      );
     });
 
     const results = await Promise.allSettled(lookups);
-    const files = results
-      .map((r) => (r.status === 'fulfilled' ? r.value : null))
-      .filter((v): v is MrModEntry => v !== null);
+    const files = results.map((r) => (r.status === 'fulfilled' ? r.value : null)).filter((v): v is MrModEntry => v !== null);
 
     const dependencies: Record<string, string> = { minecraft: mcVersion };
     if (loaderName && loaderVersion) dependencies[loaderName] = loaderVersion;
