@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import './App.css';
 import type { ParsedDump, SelectedFile } from './manifest/index';
 import { parseDump, categorizeFiles } from './manifest/index';
@@ -35,7 +35,6 @@ export default function App() {
   const [notFound, setNotFound] = useState(false);
   const [expiresAt, setExpiresAt] = useState<Date | null | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(async (file: File) => {
     setError(undefined);
@@ -51,16 +50,6 @@ export default function App() {
       setLoading(false);
     }
   }, []);
-
-  // Listen for file events dispatched by ManifestBanner's hidden input
-  useEffect(() => {
-    function handler(e: Event) {
-      const file = (e as CustomEvent<File>).detail;
-      if (file) handleFile(file);
-    }
-    window.addEventListener('dump-upload', handler);
-    return () => window.removeEventListener('dump-upload', handler);
-  }, [handleFile]);
 
   // On mount, check URL for a manifest ID and fetch dump if API URL is configured.
   // Non-UUID paths and UUID paths without a backend are redirected to /.
@@ -152,8 +141,6 @@ export default function App() {
           setExpiresAt(undefined);
           window.history.pushState({}, '', '/');
         }}
-        onUpload={() => fileInputRef.current?.click()}
-        fileInputRef={fileInputRef}
         onBurgerClick={() => setSidebarOpen(true)}
       />
       <div className="app-body">

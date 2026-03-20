@@ -3,7 +3,7 @@ import type { AnyManifest } from '../manifest';
 import { formatRelativeExpiry } from '../utils/formatExpiry';
 import ThemeToggle from './ThemeToggle';
 import { HeaderLogo } from './HeaderLogo.tsx';
-import type { RefObject } from 'react';
+import { useIsMobile } from '../utils/useIsMobile';
 
 const _rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
 const API_URL: string = import.meta.env.PROD ? (_rawApiUrl ?? '') : (_rawApiUrl ?? '');
@@ -12,8 +12,6 @@ interface Props {
   manifest: AnyManifest;
   expiresAt?: Date | null;
   onReset: () => void;
-  onUpload: () => void;
-  fileInputRef: RefObject<HTMLInputElement | null>;
   onBurgerClick?: () => void;
 }
 
@@ -51,7 +49,8 @@ function ExpiryBadge({ expiresAt }: { expiresAt: Date | null | undefined }) {
   );
 }
 
-export default function ManifestBanner({ manifest, expiresAt, onReset, onUpload, fileInputRef, onBurgerClick }: Props) {
+export default function ManifestBanner({ manifest, expiresAt, onReset, onBurgerClick }: Props) {
+  const isMobile = useIsMobile();
   const badgeContentRef = useRef<HTMLDivElement>(null);
   const [shouldCollapse, setShouldCollapse] = useState(false);
   const [badgesOpen, setBadgesOpen] = useState(false);
@@ -232,17 +231,17 @@ export default function ManifestBanner({ manifest, expiresAt, onReset, onUpload,
         )}
       </div>
 
-      <div className={`header-actions${shouldCollapse ? ' header-actions--column' : ''}`}>
+      <div className="header-actions">
         <ThemeToggle />
         <div ref={modpackRef} style={{ position: 'relative' }}>
           <button
-            className="upload-btn"
+            className={isMobile ? 'icon-btn' : 'upload-btn'}
             onClick={() => isServerStored && setModpackOpen((v) => !v)}
             disabled={!isServerStored || modpackLoading !== null}
             title={!isServerStored ? 'Only available for server-stored dumps' : 'Download modpack'}
             style={!isServerStored ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
           >
-            {modpackLoading ? '⏳ Generating…' : '⬇ Modpack'}
+            {modpackLoading ? '⏳' : '⬇'}{!isMobile && (modpackLoading ? ' Generating…' : ' Modpack')}
           </button>
           {modpackOpen && (
             <div className="modpack-dropdown">
@@ -255,19 +254,13 @@ export default function ManifestBanner({ manifest, expiresAt, onReset, onUpload,
             </div>
           )}
         </div>
-        <button className="upload-btn" onClick={onUpload}>
-          ↑ Open Dump
-        </button>
         <button
-          className="upload-btn"
+          className={isMobile ? 'icon-btn' : 'upload-btn'}
           onClick={onReset}
-          style={{
-            background: 'rgba(255,255,255,0.05)',
-            color: 'var(--text)',
-            borderColor: 'var(--border)',
-          }}
+          title="Close dump"
+          style={isMobile ? undefined : { background: 'rgba(255,255,255,0.05)', color: 'var(--text)', borderColor: 'var(--border)' }}
         >
-          ✕ Close
+          ✕{!isMobile && ' Close'}
         </button>
       </div>
 
@@ -281,21 +274,6 @@ export default function ManifestBanner({ manifest, expiresAt, onReset, onUpload,
           <div className="badge-section">{expiryEl}</div>
         </div>
       )}
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".zip"
-        style={{ display: 'none' }}
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) {
-            const event = new CustomEvent('dump-upload', { detail: file });
-            window.dispatchEvent(event);
-          }
-          e.target.value = '';
-        }}
-      />
     </header>
   );
 }
