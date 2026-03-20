@@ -116,6 +116,10 @@
 }
 
 .upload-btn:hover {
+  background: rgba(60, 173, 110, 0.2);
+}
+
+.upload-btn--close:hover {
   background: var(--surface-hover);
 }
 

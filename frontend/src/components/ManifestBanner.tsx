@@ -255,7 +255,7 @@ export default function ManifestBanner({ manifest, expiresAt, onReset, onBurgerC
           )}
         </div>
         <button
-          className={isMobile ? 'icon-btn' : 'upload-btn'}
+          className={isMobile ? 'icon-btn' : 'upload-btn upload-btn--close'}
           onClick={onReset}
           title="Close dump"
           style={isMobile ? undefined : { background: 'rgba(255,255,255,0.05)', color: 'var(--text)', borderColor: 'var(--border)' }}
