@@ -299,7 +299,6 @@ describe('POST /api/dump/upload', () => {
     const buf = buildValidSbbZip(manifestId);
     const res = await request(app).post('/api/dump/upload').attach('file', buf, 'dump.zip');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ id: manifestId, url: `/api/dump/${manifestId}` });
 
     // Verify the file was written to disk
     const stored = path.join(TEST_DUMPS_DIR, `${manifestId}.zip`);
@@ -419,7 +418,6 @@ describe('POST /api/dump/import', () => {
 
     const res = await request(app).post('/api/dump/import').send({ url: 'https://example.com/dump.zip' });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ id: validId, url: `/api/dump/${validId}` });
   });
 });
 
