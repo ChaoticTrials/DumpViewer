@@ -7,6 +7,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { lookupCurseForgeFile, lookupModrinthVersion } from './platform-api.js';
+import type { CfModEntry, MrModEntry } from './platform-api.js';
+
+// Resolve platform-ids.json from same directory as this file (works in both tsx dev and compiled dist/)
+const MODPACK_IDS_PATH = new URL('./platform-ids.json', import.meta.url).pathname;
+
+type ModpackIds = Record<string, { curseforge: number | string | null; modrinth: string | null }>;
 
 const DUMPS_DIR = path.resolve(process.env.DUMPS_DIR ?? './dumps');
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? '*';
@@ -554,6 +561,166 @@ app.get('/api/dumps', requireUploadToken, (_req, res) => {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   res.json({ dumps });
+});
+
+// GET /api/dump/:id/modpack?platform=curseforge|modrinth
+app.get('/api/dump/:id/modpack', async (req, res) => {
+  const id = req.params['id'] as string;
+
+  if (!isValidId(id)) {
+    res.status(400).json({ error: 'Invalid dump id' });
+    return;
+  }
+
+  const platform = req.query['platform'] as string | undefined;
+  if (platform !== 'curseforge' && platform !== 'modrinth') {
+    res.status(400).json({ error: 'platform must be curseforge or modrinth' });
+    return;
+  }
+
+  const filePath = path.join(DUMPS_DIR, `${id}.zip`);
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+
+  let modpackIds: ModpackIds;
+  try {
+    modpackIds = JSON.parse(fs.readFileSync(MODPACK_IDS_PATH, 'utf-8')) as ModpackIds;
+  } catch {
+    res.status(500).json({ error: 'Failed to load modpack-ids.json' });
+    return;
+  }
+
+  let manifest: Record<string, unknown>;
+  let zip: AdmZip;
+  try {
+    zip = new AdmZip(filePath);
+    const manifestEntry = zip.getEntry('manifest.json');
+    if (!manifestEntry) {
+      res.status(422).json({ error: 'No manifest.json in stored zip' });
+      return;
+    }
+    manifest = JSON.parse(manifestEntry.getData().toString('utf-8')) as Record<string, unknown>;
+  } catch {
+    res.status(500).json({ error: 'Failed to read dump' });
+    return;
+  }
+
+  const versions = (manifest['versions'] ?? {}) as Record<string, unknown>;
+  const mcVersion = (versions['minecraft'] as string | undefined) ?? '';
+  const forgeVersion = (versions['forge'] as string | undefined) ?? null;
+  const neoforgeVersion = (versions['neoforge'] as string | undefined) ?? null;
+  const loaderName = forgeVersion ? 'forge' : neoforgeVersion ? 'neoforge' : null;
+  const loaderVersion = forgeVersion ?? neoforgeVersion ?? null;
+
+  // Map dump-relative paths to modpack override paths.
+  // Dump layout (paths relative to .minecraft/):
+  //   config/<file>          → config/skyblockbuilder/<file>
+  //   templates/<rest>       → config/skyblockbuilder/templates/<rest>
+  //   level.dat              → saves/SkyBlock/level.dat
+  //   logs/...               → skip (not needed in a modpack)
+  function dumpPathToOverride(entryPath: string): string | null {
+    if (entryPath === 'level.dat' || entryPath.endsWith('/level.dat')) {
+      return 'overrides/saves/SkyBlock/level.dat';
+    }
+    if (entryPath.startsWith('config/')) {
+      return `overrides/config/skyblockbuilder/${entryPath.slice('config/'.length)}`;
+    }
+    if (entryPath.startsWith('templates/')) {
+      return `overrides/config/skyblockbuilder/${entryPath}`;
+    }
+    // Skip logs, crash reports, and anything else that doesn't belong in a modpack
+    return null;
+  }
+
+  const manifestFiles = (manifest['files'] as Array<Record<string, unknown>> | undefined) ?? [];
+  const overrideEntries: Array<{ outPath: string; data: Buffer }> = [];
+  for (const fileEntry of manifestFiles) {
+    const entryPath = fileEntry['path'] as string | undefined;
+    if (!entryPath) continue;
+    const outPath = dumpPathToOverride(entryPath);
+    if (!outPath) continue;
+    const zipEntry = zip.getEntry(entryPath);
+    if (!zipEntry) continue;
+    overrideEntries.push({ outPath, data: zipEntry.getData() });
+  }
+
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+
+  if (platform === 'curseforge') {
+    // Fan out CurseForge file lookups
+    const lookups = Object.entries(modpackIds).map(async ([key, ids]) => {
+      const cfId = ids.curseforge;
+      const modVersion = versions[key] as string | undefined;
+      if (cfId === null || !modVersion) return null;
+      return lookupCurseForgeFile(cfId, mcVersion, modVersion, AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]));
+    });
+
+    const results = await Promise.allSettled(lookups);
+    const files = results
+      .map((r) => (r.status === 'fulfilled' ? r.value : null))
+      .filter((v): v is CfModEntry => v !== null);
+
+    const modLoaders = loaderName && loaderVersion ? [{ id: `${loaderName}-${loaderVersion}`, primary: true }] : [];
+
+    const cfManifest = {
+      minecraft: { version: mcVersion, modLoaders },
+      manifestType: 'minecraftModpack',
+      manifestVersion: 1,
+      name: 'SkyBlock',
+      version: '1.0',
+      author: '',
+      files,
+      overrides: 'overrides',
+    };
+
+    const outZip = new AdmZip();
+    outZip.addFile('manifest.json', Buffer.from(JSON.stringify(cfManifest, null, 2)));
+    for (const { outPath, data } of overrideEntries) {
+      outZip.addFile(outPath, data);
+    }
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="SkyBlock-modpack.zip"');
+    res.send(outZip.toBuffer());
+  } else {
+    // Modrinth
+    const lookups = Object.entries(modpackIds).map(async ([key, ids]) => {
+      const mrId = ids.modrinth;
+      const modVersion = versions[key] as string | undefined;
+      if (mrId === null || !modVersion) return null;
+      return lookupModrinthVersion(mrId, mcVersion, modVersion, loaderName, AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]));
+    });
+
+    const results = await Promise.allSettled(lookups);
+    const files = results
+      .map((r) => (r.status === 'fulfilled' ? r.value : null))
+      .filter((v): v is MrModEntry => v !== null);
+
+    const dependencies: Record<string, string> = { minecraft: mcVersion };
+    if (loaderName && loaderVersion) dependencies[loaderName] = loaderVersion;
+
+    const mrIndex = {
+      formatVersion: 1,
+      game: 'minecraft',
+      versionId: '1.0.0',
+      name: 'SkyBlock',
+      files,
+      dependencies,
+    };
+
+    const outZip = new AdmZip();
+    outZip.addFile('modrinth.index.json', Buffer.from(JSON.stringify(mrIndex, null, 2)));
+    for (const { outPath, data } of overrideEntries) {
+      outZip.addFile(outPath, data);
+    }
+
+    res.setHeader('Content-Type', 'application/x-modrinth-modpack+zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="SkyBlock.mrpack"');
+    res.send(outZip.toBuffer());
+  }
 });
 
 // GET /health

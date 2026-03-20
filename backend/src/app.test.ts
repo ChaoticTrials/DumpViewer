@@ -588,6 +588,415 @@ describe('GET /api/dumps', () => {
 });
 
 // ============================================================
+// GET /api/dump/:id/modpack
+// ============================================================
+
+// Helper: build a dump zip for modpack tests.
+// Only includes `minecraft` in versions by default so no mod lookups are triggered.
+function buildModpackTestDump(opts: {
+  manifestId: string;
+  versions?: Record<string, string>;
+  settings?: Record<string, boolean>;
+  files?: Array<{ path: string; data: string }>;
+}): Buffer {
+  const { manifestId, versions = {}, settings = {}, files = [] } = opts;
+  const zip = new AdmZip();
+  const manifest = {
+    manifest_version: 1,
+    manifest_id: manifestId,
+    settings,
+    versions: { minecraft: '1.21.1', ...versions },
+    files: files.map((f) => ({ path: f.path })),
+  };
+  zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest), 'utf-8'));
+  for (const f of files) {
+    zip.addFile(f.path, Buffer.from(f.data, 'utf-8'));
+  }
+  return zip.toBuffer();
+}
+
+// Helper: get a modpack response as a Buffer (handles binary content-type).
+async function getModpackBuffer(url: string): Promise<{ status: number; buffer: Buffer; contentType: string }> {
+  return new Promise((resolve, reject) => {
+    // @ts-ignore
+    request(app as Express)
+      .get(url)
+      .buffer(true)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .parse((res: any, callback: any) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => callback(null, Buffer.concat(chunks)));
+      })
+      .end((err: Error | null, res: any) => {
+        if (err) reject(err);
+        else resolve({ status: res.status, buffer: res.body as Buffer, contentType: (res.headers['content-type'] as string) ?? '' });
+      });
+  });
+}
+
+describe('GET /api/dump/:id/modpack', () => {
+  const BASE_ID = '12340000-0000-4000-8000-000000000000';
+
+  beforeAll(() => {
+    const buf = buildModpackTestDump({ manifestId: BASE_ID });
+    fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${BASE_ID}.zip`), buf);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // --- Input validation ---
+
+  it('returns 400 for an invalid dump id', async () => {
+    const res = await request(app).get('/api/dump/not-a-uuid/modpack?platform=curseforge');
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+  });
+
+  it('returns 400 when platform param is missing', async () => {
+    const res = await request(app).get(`/api/dump/${BASE_ID}/modpack`);
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+  });
+
+  it('returns 400 when platform param is unrecognised', async () => {
+    const res = await request(app).get(`/api/dump/${BASE_ID}/modpack?platform=technic`);
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+  });
+
+  it('returns 404 for a non-existent dump', async () => {
+    const res = await request(app).get('/api/dump/00000000-0000-4000-8000-000000001234/modpack?platform=curseforge');
+    expect(res.status).toBe(404);
+    expect(res.body).toHaveProperty('error');
+  });
+
+  // --- CurseForge output structure ---
+
+  describe('platform=curseforge', () => {
+    it('returns 200 with application/zip content-type', async () => {
+      const { status, contentType } = await getModpackBuffer(`/api/dump/${BASE_ID}/modpack?platform=curseforge`);
+      expect(status).toBe(200);
+      expect(contentType).toMatch(/application\/zip/);
+    });
+
+    it('zip contains a valid manifest.json with correct structure', async () => {
+      const { buffer } = await getModpackBuffer(`/api/dump/${BASE_ID}/modpack?platform=curseforge`);
+      const zip = new AdmZip(buffer);
+      const entry = zip.getEntry('manifest.json');
+      expect(entry).not.toBeNull();
+      const parsed = JSON.parse(entry!.getData().toString('utf-8')) as Record<string, unknown>;
+      expect(parsed['manifestType']).toBe('minecraftModpack');
+      expect(parsed['manifestVersion']).toBe(1);
+      expect(parsed['overrides']).toBe('overrides');
+      expect((parsed['minecraft'] as Record<string, unknown>)['version']).toBe('1.21.1');
+    });
+
+    it('includes forge modLoader entry when manifest has forge version', async () => {
+      const id = '12340000-0000-4000-8000-cf0000000001';
+      fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.zip`), buildModpackTestDump({ manifestId: id, versions: { forge: '47.3.0' } }));
+
+      const { buffer } = await getModpackBuffer(`/api/dump/${id}/modpack?platform=curseforge`);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('manifest.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      const modLoaders = (parsed['minecraft'] as Record<string, unknown>)['modLoaders'] as Array<{ id: string; primary: boolean }>;
+      expect(modLoaders).toHaveLength(1);
+      expect(modLoaders[0].id).toBe('forge-47.3.0');
+      expect(modLoaders[0].primary).toBe(true);
+    });
+
+    it('includes neoforge modLoader entry when manifest has neoforge version', async () => {
+      const id = '12340000-0000-4000-8000-cf0000000002';
+      fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.zip`), buildModpackTestDump({ manifestId: id, versions: { neoforge: '21.1.0' } }));
+
+      const { buffer } = await getModpackBuffer(`/api/dump/${id}/modpack?platform=curseforge`);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('manifest.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      const modLoaders = (parsed['minecraft'] as Record<string, unknown>)['modLoaders'] as Array<{ id: string }>;
+      expect(modLoaders[0].id).toBe('neoforge-21.1.0');
+    });
+
+    it('has empty modLoaders when no loader version in manifest', async () => {
+      const { buffer } = await getModpackBuffer(`/api/dump/${BASE_ID}/modpack?platform=curseforge`);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('manifest.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      expect((parsed['minecraft'] as Record<string, unknown>)['modLoaders']).toHaveLength(0);
+    });
+
+    it('has empty files array when no mod versions are present', async () => {
+      const { buffer } = await getModpackBuffer(`/api/dump/${BASE_ID}/modpack?platform=curseforge`);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('manifest.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      expect(parsed['files']).toHaveLength(0);
+    });
+
+    it('includes a mod entry when the CurseForge API returns a matching file', async () => {
+      const id = '12340000-0000-4000-8000-cf0000000003';
+      fs.writeFileSync(
+        path.join(TEST_DUMPS_DIR, `${id}.zip`),
+        buildModpackTestDump({ manifestId: id, versions: { skyblockbuilder: '2.3.0' } }),
+      );
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => [
+            { project: 446691, file: 12345, name: 'skyblockbuilder-2.3.0.jar', versions: ['1.21.1'] },
+            { project: 446691, file: 99999, name: 'skyblockbuilder-1.0.0.jar', versions: ['1.20.1'] },
+          ],
+        }),
+      );
+
+      const { buffer } = await getModpackBuffer(`/api/dump/${id}/modpack?platform=curseforge`);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('manifest.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      const files = parsed['files'] as Array<{ projectID: unknown; fileID: number; required: boolean }>;
+      expect(files).toHaveLength(1);
+      expect(files[0].fileID).toBe(12345);
+      expect(files[0].required).toBe(true);
+    });
+
+    it('silently skips a mod when the CurseForge API returns no matching file', async () => {
+      const id = '12340000-0000-4000-8000-cf0000000004';
+      fs.writeFileSync(
+        path.join(TEST_DUMPS_DIR, `${id}.zip`),
+        buildModpackTestDump({ manifestId: id, versions: { skyblockbuilder: '9.9.9' } }),
+      );
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => [{ project: 446691, file: 1, name: 'skyblockbuilder-2.3.0.jar', versions: ['1.21.1'] }],
+        }),
+      );
+
+      const { status, buffer } = await getModpackBuffer(`/api/dump/${id}/modpack?platform=curseforge`);
+      expect(status).toBe(200);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('manifest.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      expect(parsed['files']).toHaveLength(0);
+    });
+
+    it('silently skips a mod when the CurseForge API call fails', async () => {
+      const id = '12340000-0000-4000-8000-cf0000000005';
+      fs.writeFileSync(
+        path.join(TEST_DUMPS_DIR, `${id}.zip`),
+        buildModpackTestDump({ manifestId: id, versions: { skyblockbuilder: '2.3.0' } }),
+      );
+
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network error')));
+
+      const { status, buffer } = await getModpackBuffer(`/api/dump/${id}/modpack?platform=curseforge`);
+      expect(status).toBe(200);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('manifest.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      expect(parsed['files']).toHaveLength(0);
+    });
+  });
+
+  // --- Modrinth output structure ---
+
+  describe('platform=modrinth', () => {
+    it('returns 200 with modrinth content-type', async () => {
+      const { status, contentType } = await getModpackBuffer(`/api/dump/${BASE_ID}/modpack?platform=modrinth`);
+      expect(status).toBe(200);
+      expect(contentType).toMatch(/modrinth/);
+    });
+
+    it('zip contains a valid modrinth.index.json with correct structure', async () => {
+      const { buffer } = await getModpackBuffer(`/api/dump/${BASE_ID}/modpack?platform=modrinth`);
+      const zip = new AdmZip(buffer);
+      const entry = zip.getEntry('modrinth.index.json');
+      expect(entry).not.toBeNull();
+      const parsed = JSON.parse(entry!.getData().toString('utf-8')) as Record<string, unknown>;
+      expect(parsed['formatVersion']).toBe(1);
+      expect(parsed['game']).toBe('minecraft');
+      expect((parsed['dependencies'] as Record<string, string>)['minecraft']).toBe('1.21.1');
+    });
+
+    it('includes forge in dependencies when manifest has forge version', async () => {
+      const id = '12340000-0000-4000-8000-dd0000000001';
+      fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.zip`), buildModpackTestDump({ manifestId: id, versions: { forge: '47.3.0' } }));
+
+      const { buffer } = await getModpackBuffer(`/api/dump/${id}/modpack?platform=modrinth`);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('modrinth.index.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      const deps = parsed['dependencies'] as Record<string, string>;
+      expect(deps['forge']).toBe('47.3.0');
+      expect(deps['neoforge']).toBeUndefined();
+    });
+
+    it('includes neoforge in dependencies when manifest has neoforge version', async () => {
+      const id = '12340000-0000-4000-8000-dd0000000002';
+      fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.zip`), buildModpackTestDump({ manifestId: id, versions: { neoforge: '21.1.0' } }));
+
+      const { buffer } = await getModpackBuffer(`/api/dump/${id}/modpack?platform=modrinth`);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('modrinth.index.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      const deps = parsed['dependencies'] as Record<string, string>;
+      expect(deps['neoforge']).toBe('21.1.0');
+      expect(deps['forge']).toBeUndefined();
+    });
+
+    it('omits loader from dependencies when no loader version in manifest', async () => {
+      const { buffer } = await getModpackBuffer(`/api/dump/${BASE_ID}/modpack?platform=modrinth`);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('modrinth.index.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      const deps = parsed['dependencies'] as Record<string, string>;
+      expect(deps['forge']).toBeUndefined();
+      expect(deps['neoforge']).toBeUndefined();
+    });
+
+    it('includes a mod entry when the Modrinth API returns a matching version', async () => {
+      const id = '12340000-0000-4000-8000-dd0000000003';
+      fs.writeFileSync(
+        path.join(TEST_DUMPS_DIR, `${id}.zip`),
+        buildModpackTestDump({ manifestId: id, versions: { skyblockbuilder: '2.3.0', forge: '47.3.0' } }),
+      );
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => [
+            {
+              version_number: '2.3.0',
+              files: [
+                {
+                  url: 'https://cdn.modrinth.com/data/abc/skyblockbuilder-2.3.0.jar',
+                  filename: 'skyblockbuilder-2.3.0.jar',
+                  primary: true,
+                  hashes: { sha1: 'aabbcc', sha512: 'ddeeff' },
+                  size: 123456,
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+      const { buffer } = await getModpackBuffer(`/api/dump/${id}/modpack?platform=modrinth`);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('modrinth.index.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      const files = parsed['files'] as Array<Record<string, unknown>>;
+      expect(files).toHaveLength(1);
+      expect(files[0]['path']).toBe('mods/skyblockbuilder-2.3.0.jar');
+      expect((files[0]['hashes'] as Record<string, string>)['sha1']).toBe('aabbcc');
+      expect(files[0]['fileSize']).toBe(123456);
+      expect((files[0]['downloads'] as string[])[0]).toBe('https://cdn.modrinth.com/data/abc/skyblockbuilder-2.3.0.jar');
+    });
+
+    it('silently skips a mod when the Modrinth API returns no matching version', async () => {
+      const id = '12340000-0000-4000-8000-dd0000000004';
+      fs.writeFileSync(
+        path.join(TEST_DUMPS_DIR, `${id}.zip`),
+        buildModpackTestDump({ manifestId: id, versions: { skyblockbuilder: '9.9.9', forge: '47.3.0' } }),
+      );
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => [
+            {
+              version_number: '2.3.0',
+              files: [{ url: 'https://example.com/f.jar', filename: 'f.jar', primary: true, hashes: { sha1: 'a', sha512: 'b' }, size: 1 }],
+            },
+          ],
+        }),
+      );
+
+      const { status, buffer } = await getModpackBuffer(`/api/dump/${id}/modpack?platform=modrinth`);
+      expect(status).toBe(200);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('modrinth.index.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      expect(parsed['files']).toHaveLength(0);
+    });
+
+    it('silently skips a mod when the Modrinth API call fails', async () => {
+      const id = '12340000-0000-4000-8000-dd0000000005';
+      fs.writeFileSync(
+        path.join(TEST_DUMPS_DIR, `${id}.zip`),
+        buildModpackTestDump({ manifestId: id, versions: { skyblockbuilder: '2.3.0', forge: '47.3.0' } }),
+      );
+
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network error')));
+
+      const { status, buffer } = await getModpackBuffer(`/api/dump/${id}/modpack?platform=modrinth`);
+      expect(status).toBe(200);
+      const zip = new AdmZip(buffer);
+      const parsed = JSON.parse(zip.getEntry('modrinth.index.json')!.getData().toString('utf-8')) as Record<string, unknown>;
+      expect(parsed['files']).toHaveLength(0);
+    });
+  });
+
+  // --- File path mapping in overrides ---
+
+  describe('override file mapping', () => {
+    const FILE_MAP_ID = '12340000-0000-4000-8000-fe0000000000';
+
+    beforeAll(() => {
+      const buf = buildModpackTestDump({
+        manifestId: FILE_MAP_ID,
+        settings: { configs: true, level_dat: true },
+        files: [
+          { path: 'level.dat', data: 'LEVELDAT' },
+          { path: 'config/customization.json5', data: 'CUSTOMIZATION' },
+          { path: 'config/permissions.json5', data: 'PERMISSIONS' },
+          { path: 'templates/islands/default.nbt', data: 'NBT' },
+          { path: 'templates/spreads/test.snbt', data: 'SNBT' },
+          { path: 'logs/latest.log', data: 'LOG' },
+        ],
+      });
+      fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${FILE_MAP_ID}.zip`), buf);
+    });
+
+    it('places level.dat at overrides/saves/SkyBlock/level.dat', async () => {
+      const { buffer } = await getModpackBuffer(`/api/dump/${FILE_MAP_ID}/modpack?platform=curseforge`);
+      const zip = new AdmZip(buffer);
+      const entry = zip.getEntry('overrides/saves/SkyBlock/level.dat');
+      expect(entry).not.toBeNull();
+      expect(entry!.getData().toString('utf-8')).toBe('LEVELDAT');
+    });
+
+    it('maps config/* to overrides/config/skyblockbuilder/*', async () => {
+      const { buffer } = await getModpackBuffer(`/api/dump/${FILE_MAP_ID}/modpack?platform=curseforge`);
+      const zip = new AdmZip(buffer);
+      expect(zip.getEntry('overrides/config/skyblockbuilder/customization.json5')).not.toBeNull();
+      expect(zip.getEntry('overrides/config/skyblockbuilder/permissions.json5')).not.toBeNull();
+      expect(zip.getEntry('overrides/config/skyblockbuilder/customization.json5')!.getData().toString('utf-8')).toBe('CUSTOMIZATION');
+    });
+
+    it('maps templates/* to overrides/config/skyblockbuilder/templates/*', async () => {
+      const { buffer } = await getModpackBuffer(`/api/dump/${FILE_MAP_ID}/modpack?platform=curseforge`);
+      const zip = new AdmZip(buffer);
+      expect(zip.getEntry('overrides/config/skyblockbuilder/templates/islands/default.nbt')).not.toBeNull();
+      expect(zip.getEntry('overrides/config/skyblockbuilder/templates/spreads/test.snbt')).not.toBeNull();
+    });
+
+    it('excludes log files from the output zip', async () => {
+      const { buffer } = await getModpackBuffer(`/api/dump/${FILE_MAP_ID}/modpack?platform=curseforge`);
+      const zip = new AdmZip(buffer);
+      const entries = zip.getEntries().map((e) => e.entryName);
+      expect(entries.some((e) => e.includes('logs/'))).toBe(false);
+    });
+
+    it('applies the same file mapping for the modrinth platform', async () => {
+      const { buffer } = await getModpackBuffer(`/api/dump/${FILE_MAP_ID}/modpack?platform=modrinth`);
+      const zip = new AdmZip(buffer);
+      expect(zip.getEntry('overrides/saves/SkyBlock/level.dat')).not.toBeNull();
+      expect(zip.getEntry('overrides/config/skyblockbuilder/customization.json5')).not.toBeNull();
+      expect(zip.getEntry('overrides/config/skyblockbuilder/templates/islands/default.nbt')).not.toBeNull();
+      expect(zip.getEntries().some((e) => e.entryName.includes('logs/'))).toBe(false);
+    });
+  });
+});
+
+// ============================================================
 // cleanupOldDumps() unit tests
 // ============================================================
 

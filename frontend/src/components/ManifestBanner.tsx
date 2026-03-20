@@ -1,9 +1,12 @@
-import { useState, useRef, useLayoutEffect } from 'react';
+import { useState, useRef, useLayoutEffect, useEffect } from 'react';
 import type { AnyManifest } from '../manifest';
 import { formatRelativeExpiry } from '../utils/formatExpiry';
 import ThemeToggle from './ThemeToggle';
 import { HeaderLogo } from './HeaderLogo.tsx';
 import type { RefObject } from 'react';
+
+const _rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
+const API_URL: string = import.meta.env.PROD ? (_rawApiUrl ?? '') : (_rawApiUrl ?? '');
 
 interface Props {
   manifest: AnyManifest;
@@ -52,6 +55,44 @@ export default function ManifestBanner({ manifest, expiresAt, onReset, onUpload,
   const badgeContentRef = useRef<HTMLDivElement>(null);
   const [shouldCollapse, setShouldCollapse] = useState(false);
   const [badgesOpen, setBadgesOpen] = useState(false);
+
+  const [modpackOpen, setModpackOpen] = useState(false);
+  const [modpackLoading, setModpackLoading] = useState<'curseforge' | 'modrinth' | null>(null);
+  const modpackRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!modpackOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (modpackRef.current && !modpackRef.current.contains(e.target as Node)) {
+        setModpackOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [modpackOpen]);
+
+  async function triggerModpackDownload(platform: 'curseforge' | 'modrinth') {
+    setModpackOpen(false);
+    setModpackLoading(platform);
+    const ext = platform === 'modrinth' ? '.mrpack' : '.zip';
+    try {
+      const res = await fetch(`${API_URL}/api/dump/${manifest.manifest_id}/modpack?platform=${platform}`);
+      if (!res.ok) throw new Error('Failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `SkyBlock-modpack${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* silent failure */
+    } finally {
+      setModpackLoading(null);
+    }
+  }
+
+  const isServerStored = expiresAt !== undefined;
 
   useLayoutEffect(() => {
     function measure(): boolean {
@@ -193,6 +234,27 @@ export default function ManifestBanner({ manifest, expiresAt, onReset, onUpload,
 
       <div className={`header-actions${shouldCollapse ? ' header-actions--column' : ''}`}>
         <ThemeToggle />
+        <div ref={modpackRef} style={{ position: 'relative' }}>
+          <button
+            className="upload-btn"
+            onClick={() => isServerStored && setModpackOpen((v) => !v)}
+            disabled={!isServerStored || modpackLoading !== null}
+            title={!isServerStored ? 'Only available for server-stored dumps' : 'Download modpack'}
+            style={!isServerStored ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+          >
+            {modpackLoading ? '⏳ Generating…' : '⬇ Modpack'}
+          </button>
+          {modpackOpen && (
+            <div className="modpack-dropdown">
+              <button className="modpack-dropdown-item" onClick={() => triggerModpackDownload('curseforge')}>
+                CurseForge
+              </button>
+              <button className="modpack-dropdown-item" onClick={() => triggerModpackDownload('modrinth')}>
+                Modrinth
+              </button>
+            </div>
+          )}
+        </div>
         <button className="upload-btn" onClick={onUpload}>
           ↑ Open Dump
         </button>
