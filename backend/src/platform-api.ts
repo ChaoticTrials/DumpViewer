@@ -68,15 +68,13 @@ export async function lookupModrinthVersion(
 ): Promise<MrModEntry | null> {
   const loaderParam = loaderName ? `&loaders=["${loaderName}"]` : '';
   try {
-    const res = await fetch(
-      `https://api.modrinth.com/v2/project/${mrId}/version?game_versions=["${mcVersion}"]${loaderParam}`,
-      { headers: { 'User-Agent': USER_AGENT }, signal },
-    );
+    const res = await fetch(`https://api.modrinth.com/v2/project/${mrId}/version?game_versions=["${mcVersion}"]${loaderParam}`, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal,
+    });
     if (!res.ok) return null;
     const entries = (await res.json()) as MrVersionEntry[];
-    const match = entries.find(
-      (e) => e.version_number === modVersion || e.version_number.endsWith('-' + modVersion),
-    );
+    const match = entries.find((e) => e.version_number === modVersion || e.version_number.endsWith('-' + modVersion));
     if (!match) return null;
     const file = match.files.find((f) => f.primary) ?? match.files[0];
     if (!file) return null;

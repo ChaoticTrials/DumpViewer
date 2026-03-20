@@ -241,7 +241,8 @@ export default function ManifestBanner({ manifest, expiresAt, onReset, onBurgerC
             title={!isServerStored ? 'Only available for server-stored dumps' : 'Download modpack'}
             style={!isServerStored ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
           >
-            {modpackLoading ? '⏳' : '⬇'}{!isMobile && (modpackLoading ? ' Generating…' : ' Modpack')}
+            {modpackLoading ? '⏳' : '⬇'}
+            {!isMobile && (modpackLoading ? ' Generating…' : ' Modpack')}
           </button>
           {modpackOpen && (
             <div className="modpack-dropdown">

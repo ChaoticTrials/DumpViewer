@@ -42,10 +42,14 @@ function computeDefaultLines(fullContent: string, changedContent: string): Set<n
 }
 
 const SHL_CUSTOM_STYLE = {
-  margin: 0, borderRadius: 0, fontSize: '12.5px', lineHeight: '1.6',
+  margin: 0,
+  borderRadius: 0,
+  fontSize: '12.5px',
+  lineHeight: '1.6',
   // width: max-content makes <pre> expand to the longest line, so all highlighted
   // line spans (width: 100%) share the same uniform width regardless of their content.
-  width: 'max-content', minWidth: '100%',
+  width: 'max-content',
+  minWidth: '100%',
 };
 
 export default function ConfigViewer({ fullContent, changedContent, changedFormat }: Props) {
@@ -197,9 +201,7 @@ export default function ConfigViewer({ fullContent, changedContent, changedForma
           style={hlStyle}
           showLineNumbers
           wrapLines={noDiffErrorLine != null}
-          lineProps={noDiffErrorLine != null
-            ? (n: number) => n === noDiffErrorLine ? { className: 'line-error' } : {}
-            : undefined}
+          lineProps={noDiffErrorLine != null ? (n: number) => (n === noDiffErrorLine ? { className: 'line-error' } : {}) : undefined}
           customStyle={{ margin: 0, borderRadius: 0, fontSize: '12.5px', lineHeight: '1.6' }}
           codeTagProps={{ style: { fontFamily: 'var(--mono)' } }}
         >

@@ -72,8 +72,12 @@ function ContrastIcon() {
 
 type ThemeState = [BaseTheme, boolean];
 const ALL_CYCLE: ThemeState[] = [
-  ['dark', false], ['light', false], ['system', false],
-  ['dark', true],  ['light', true],  ['system', true],
+  ['dark', false],
+  ['light', false],
+  ['system', false],
+  ['dark', true],
+  ['light', true],
+  ['system', true],
 ];
 
 // ── Component ────────────────────────────────────────────

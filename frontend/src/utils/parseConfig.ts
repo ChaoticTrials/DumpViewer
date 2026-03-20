@@ -4,7 +4,7 @@
  */
 export interface ConfigParseError {
   message: string;
-  line?: number;      // 1-based line where the parser detected the error
+  line?: number; // 1-based line where the parser detected the error
   commaLine?: number; // 1-based line where a comma is likely missing (highlight this instead)
   hint?: string;
 }

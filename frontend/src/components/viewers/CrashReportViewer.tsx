@@ -49,16 +49,11 @@ export default function CrashReportViewer({ content }: Props) {
           {exception && (
             <>
               {isMobile && (
-                <button
-                  className="crash-exception-toggle"
-                  onClick={() => setExceptionCollapsed((v) => !v)}
-                >
+                <button className="crash-exception-toggle" onClick={() => setExceptionCollapsed((v) => !v)}>
                   {exceptionCollapsed ? '▶ Show exception' : '▼ Hide exception'}
                 </button>
               )}
-              {(!isMobile || !exceptionCollapsed) && (
-                <pre className="crash-exception">{exception}</pre>
-              )}
+              {(!isMobile || !exceptionCollapsed) && <pre className="crash-exception">{exception}</pre>}
             </>
           )}
         </div>
