@@ -41,6 +41,13 @@ function computeDefaultLines(fullContent: string, changedContent: string): Set<n
   return defaultLines;
 }
 
+const SHL_CUSTOM_STYLE = {
+  margin: 0, borderRadius: 0, fontSize: '12.5px', lineHeight: '1.6',
+  // width: max-content makes <pre> expand to the longest line, so all highlighted
+  // line spans (width: 100%) share the same uniform width regardless of their content.
+  width: 'max-content', minWidth: '100%',
+};
+
 export default function ConfigViewer({ fullContent, changedContent, changedFormat }: Props) {
   const hlStyle = useHighlighterTheme();
   const [tabJson5, setTabJson5] = useState<TabJson5>('full');
@@ -112,7 +119,7 @@ export default function ConfigViewer({ fullContent, changedContent, changedForma
             showLineNumbers
             wrapLines={shouldWrapLines}
             lineProps={shouldWrapLines ? lineProps : undefined}
-            customStyle={{ margin: 0, borderRadius: 0, fontSize: '12.5px', lineHeight: '1.6' }}
+            customStyle={SHL_CUSTOM_STYLE}
             codeTagProps={{ style: { fontFamily: 'var(--mono)' } }}
           >
             {content}
@@ -169,7 +176,7 @@ export default function ConfigViewer({ fullContent, changedContent, changedForma
             showLineNumbers
             wrapLines={shouldWrapLinesDiff}
             lineProps={shouldWrapLinesDiff ? diffLineProps : undefined}
-            customStyle={{ margin: 0, borderRadius: 0, fontSize: '12.5px', lineHeight: '1.6' }}
+            customStyle={SHL_CUSTOM_STYLE}
             codeTagProps={{ style: { fontFamily: 'var(--mono)' } }}
           >
             {tabDiff === 'diff' ? changedContent : fullContent}
