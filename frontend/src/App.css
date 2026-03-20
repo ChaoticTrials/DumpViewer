@@ -1047,9 +1047,12 @@
 /* ── Config error line highlight ────────────────────────── */
 
 .line-error {
-  background: rgba(248, 113, 113, 0.15) !important;
-  border-left: 3px solid rgba(248, 113, 113, 0.7) !important;
   display: block;
+  width: 100%;
+  background: rgba(248, 113, 113, 0.15);
+  border-left: 3px solid rgba(248, 113, 113, 0.7);
+  margin-left: -3px;
+  padding-left: 3px;
 }
 
 /* ── Crash exception toggle ─────────────────────────────── */

@@ -4,7 +4,8 @@
  */
 export interface ConfigParseError {
   message: string;
-  line?: number; // 1-based line in the ORIGINAL content
+  line?: number;      // 1-based line where the parser detected the error
+  commaLine?: number; // 1-based line where a comma is likely missing (highlight this instead)
   hint?: string;
 }
 
@@ -35,6 +36,7 @@ export function getConfigParseError(content: string): ConfigParseError | undefin
 
     // Build a hint: show the problem line and suggest looking one line above for missing commas
     let hint: string | undefined;
+    let commaLine: number | undefined;
     if (line !== undefined) {
       const lines = content.split('\n');
       const errorLine = lines[line - 1];
@@ -60,6 +62,7 @@ export function getConfigParseError(content: string): ConfigParseError | undefin
           !prevTrimmed.endsWith('[')
         ) {
           hint += `\n→ Possible missing comma after line ${prevLineNum}: ${prevTrimmed}`;
+          commaLine = prevLineNum;
         }
       }
     }
@@ -67,7 +70,7 @@ export function getConfigParseError(content: string): ConfigParseError | undefin
     // Clean up the raw message (remove the "at line X column Y" part, we show it ourselves)
     const cleanMsg = msg.replace(/\s*(in JSON)?\s*at (position \d+|line \d+(,? column \d+)?).*$/i, '').trim();
 
-    return { message: cleanMsg || msg, line, hint };
+    return { message: cleanMsg || msg, line, commaLine, hint };
   }
 }
 

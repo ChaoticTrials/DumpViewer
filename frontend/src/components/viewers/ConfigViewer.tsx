@@ -58,7 +58,11 @@ export default function ConfigViewer({ fullContent, changedContent, changedForma
     const content = tabJson5 === 'changed' ? changedContent : fullContent;
     const showDiffHighlight = tabJson5 === 'full';
 
+    const errorLine = tabJson5 === 'full' ? (parseError?.commaLine ?? parseError?.line) : undefined;
+    const shouldWrapLines = showDiffHighlight || errorLine != null;
+
     function lineProps(lineNumber: number): HTMLAttributes<HTMLElement> {
+      if (errorLine === lineNumber) return { className: 'line-error' };
       if (!showDiffHighlight) return {};
       if (defaultLines.has(lineNumber)) {
         return { className: 'line-default' };
@@ -106,8 +110,8 @@ export default function ConfigViewer({ fullContent, changedContent, changedForma
             language="json"
             style={hlStyle}
             showLineNumbers
-            wrapLines={showDiffHighlight}
-            lineProps={showDiffHighlight ? lineProps : undefined}
+            wrapLines={shouldWrapLines}
+            lineProps={shouldWrapLines ? lineProps : undefined}
             customStyle={{ margin: 0, borderRadius: 0, fontSize: '12.5px', lineHeight: '1.6' }}
             codeTagProps={{ style: { fontFamily: 'var(--mono)' } }}
           >
@@ -122,7 +126,11 @@ export default function ConfigViewer({ fullContent, changedContent, changedForma
   if (changedFormat === 'diff' && changedContent !== null) {
     const rawDiffLines = changedContent.split('\n');
 
+    const diffErrorLine = tabDiff === 'full' ? (parseError?.commaLine ?? parseError?.line) : undefined;
+    const shouldWrapLinesDiff = tabDiff === 'diff' || diffErrorLine != null;
+
     function diffLineProps(lineNumber: number): HTMLAttributes<HTMLElement> {
+      if (tabDiff === 'full' && diffErrorLine === lineNumber) return { className: 'line-error' };
       const line = rawDiffLines[lineNumber - 1] ?? '';
       if (line.startsWith('+++') || line.startsWith('---')) return { className: 'line-diff-meta' };
       if (line.startsWith('+')) return { className: 'line-diff-added' };
@@ -159,8 +167,8 @@ export default function ConfigViewer({ fullContent, changedContent, changedForma
             language={tabDiff === 'diff' ? 'text' : 'json'}
             style={hlStyle}
             showLineNumbers
-            wrapLines={tabDiff === 'diff'}
-            lineProps={tabDiff === 'diff' ? diffLineProps : undefined}
+            wrapLines={shouldWrapLinesDiff}
+            lineProps={shouldWrapLinesDiff ? diffLineProps : undefined}
             customStyle={{ margin: 0, borderRadius: 0, fontSize: '12.5px', lineHeight: '1.6' }}
             codeTagProps={{ style: { fontFamily: 'var(--mono)' } }}
           >
@@ -172,6 +180,7 @@ export default function ConfigViewer({ fullContent, changedContent, changedForma
   }
 
   // ── No diff (null) ─────────────────────────────────────────────────────
+  const noDiffErrorLine = parseError?.commaLine ?? parseError?.line;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
       {parseError && <ParseErrorBanner parseError={parseError} />}
@@ -180,6 +189,10 @@ export default function ConfigViewer({ fullContent, changedContent, changedForma
           language="json"
           style={hlStyle}
           showLineNumbers
+          wrapLines={noDiffErrorLine != null}
+          lineProps={noDiffErrorLine != null
+            ? (n: number) => n === noDiffErrorLine ? { className: 'line-error' } : {}
+            : undefined}
           customStyle={{ margin: 0, borderRadius: 0, fontSize: '12.5px', lineHeight: '1.6' }}
           codeTagProps={{ style: { fontFamily: 'var(--mono)' } }}
         >
