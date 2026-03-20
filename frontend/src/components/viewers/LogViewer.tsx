@@ -5,7 +5,7 @@ type Level = 'INFO' | 'WARN' | 'ERROR' | 'FATAL' | 'DEBUG' | 'UNKNOWN';
 interface LogEntry {
   index: number;
   level: Level;
-  text: string;
+  lines: string[];
 }
 
 const LOG_PATTERN = /^\[.*?] \[.*?\/(INFO|WARN|ERROR|FATAL|DEBUG)]/;
@@ -17,13 +17,19 @@ function parseLine(line: string): Level {
 }
 
 function parseLog(content: string): LogEntry[] {
-  const lines = content.split('\n');
+  const rawLines = content.split('\n');
   const entries: LogEntry[] = [];
-  let index = 0;
+  let lineNum = 0;
 
-  for (const line of lines) {
+  for (const line of rawLines) {
+    lineNum++;
     if (!line.trim()) continue;
-    entries.push({ index: ++index, level: parseLine(line), text: line });
+    const level = parseLine(line);
+    if (level === 'UNKNOWN' && entries.length > 0) {
+      entries[entries.length - 1].lines.push(line);
+    } else {
+      entries.push({ index: lineNum, level, lines: [line] });
+    }
   }
 
   return entries;
@@ -80,7 +86,7 @@ export default function LogViewer({ content }: Props) {
         {filtered.map((entry) => (
           <div key={entry.index} className={`log-line ${entry.level}`}>
             <span className="log-lineno">{entry.index}</span>
-            <span className="log-text">{entry.text}</span>
+            <span className="log-text">{entry.lines.join('\n')}</span>
           </div>
         ))}
       </div>
