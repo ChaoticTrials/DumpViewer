@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { useIsMobile } from '../../utils/useIsMobile';
 
 interface Props {
   content: string;
@@ -36,6 +37,8 @@ function parseCrashReport(content: string) {
 
 export default function CrashReportViewer({ content }: Props) {
   const { description, exception } = useMemo(() => parseCrashReport(content), [content]);
+  const isMobile = useIsMobile();
+  const [exceptionCollapsed, setExceptionCollapsed] = useState(true);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -43,7 +46,21 @@ export default function CrashReportViewer({ content }: Props) {
         <div className="crash-header">
           <p className="crash-title">💥 Crash Report</p>
           <p className="crash-desc">{description}</p>
-          {exception && <pre className="crash-exception">{exception}</pre>}
+          {exception && (
+            <>
+              {isMobile && (
+                <button
+                  className="crash-exception-toggle"
+                  onClick={() => setExceptionCollapsed((v) => !v)}
+                >
+                  {exceptionCollapsed ? '▶ Show exception' : '▼ Hide exception'}
+                </button>
+              )}
+              {(!isMobile || !exceptionCollapsed) && (
+                <pre className="crash-exception">{exception}</pre>
+              )}
+            </>
+          )}
         </div>
       )}
       <div className="crash-body" style={{ flex: 1, overflow: 'auto' }}>

@@ -1,5 +1,16 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => window.innerWidth < 768);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const handler = () => setMobile(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return mobile;
+}
+
 type BaseTheme = 'dark' | 'light' | 'system';
 
 const BASE_CYCLE: BaseTheme[] = ['dark', 'light', 'system'];
@@ -67,6 +78,14 @@ function ContrastIcon() {
   );
 }
 
+// ── Cycle state ──────────────────────────────────────────
+
+type ThemeState = [BaseTheme, boolean];
+const ALL_CYCLE: ThemeState[] = [
+  ['dark', false], ['light', false], ['system', false],
+  ['dark', true],  ['light', true],  ['system', true],
+];
+
 // ── Component ────────────────────────────────────────────
 
 const BASE_TITLES: Record<BaseTheme, string> = {
@@ -78,6 +97,7 @@ const BASE_TITLES: Record<BaseTheme, string> = {
 export default function ThemeToggle() {
   const [base, setBase] = useState<BaseTheme>(readBase);
   const [hc, setHc] = useState<boolean>(readHc);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const apply = () => {
@@ -97,6 +117,13 @@ export default function ThemeToggle() {
     setBase((prev) => BASE_CYCLE[(BASE_CYCLE.indexOf(prev) + 1) % BASE_CYCLE.length]);
   }
 
+  function cycleAll() {
+    const idx = ALL_CYCLE.findIndex(([b, h]) => b === base && h === hc);
+    const [nextBase, nextHc] = ALL_CYCLE[(idx + 1) % ALL_CYCLE.length];
+    setBase(nextBase);
+    setHc(nextHc);
+  }
+
   const BaseIcon = base === 'light' ? SunIcon : base === 'dark' ? MoonIcon : SystemIcon;
 
   const halfBtn: CSSProperties = {
@@ -111,6 +138,22 @@ export default function ThemeToggle() {
     transition: 'background 0.15s, color 0.15s',
     width: '50%',
   };
+
+  const MODE_LABELS: Record<BaseTheme, string> = { dark: 'Dark', light: 'Light', system: 'System' };
+  const cycleTitle = `${MODE_LABELS[base]}${hc ? ' · HC' : ''} — click to cycle`;
+
+  if (isMobile) {
+    return (
+      <button
+        className="icon-btn"
+        onClick={cycleAll}
+        title={cycleTitle}
+        style={hc ? { color: 'var(--accent)', background: 'var(--accent-bg)' } : undefined}
+      >
+        <BaseIcon />
+      </button>
+    );
+  }
 
   return (
     <div
