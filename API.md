@@ -40,10 +40,10 @@ Upload a dump zip from disk.
 **Response `200`:**
 
 ```json
-{ "id": "550e8400-e29b-41d4-a716-446655440000", "url": "/api/dump/550e8400-e29b-41d4-a716-446655440000" }
+{ "id": "550e8400-e29b-41d4-a716-446655440000", "deleteKey": "<base64url-encoded key>" }
 ```
 
-The `id` is the `manifest_id` from `manifest.json` inside the zip (UUID v4). The `url` is the path to download the raw zip from this server. The viewer is at `/<id>`.
+The `id` is the `manifest_id` from `manifest.json` inside the zip (UUID v4). The `deleteKey` can be used with `GET /api/delete/:key` to delete the dump later without the server auth token.
 
 **curl example:**
 
@@ -75,7 +75,7 @@ Fetch a dump zip from a remote URL and store it on the server.
 **Response `200`:**
 
 ```json
-{ "id": "550e8400-e29b-41d4-a716-446655440000", "url": "/api/dump/550e8400-e29b-41d4-a716-446655440000" }
+{ "id": "550e8400-e29b-41d4-a716-446655440000", "deleteKey": "<base64url-encoded key>" }
 ```
 
 **curl example:**
@@ -149,6 +149,30 @@ Delete a stored dump.
 ```bash
 curl -X DELETE http://localhost:3001/api/dump/550e8400-e29b-41d4-a716-446655440000 \
   -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## `GET /api/delete/:key`
+
+Delete a stored dump using the delete key returned by the upload or import endpoint. **No auth token required** — the key itself is the credential.
+
+```
+GET /api/delete/<deleteKey>
+```
+
+The key encodes the dump id using the server's RSA private key. The server recovers the id from the key and deletes the dump. This endpoint is intentionally a GET so it can be opened directly in a browser.
+
+**Response `200`:** `Deleted` (plain text)
+
+**Response `400`:** `Invalid delete key` — key could not be decoded or did not contain a valid id
+
+**Response `404`:** `Not found` — key is valid but the dump no longer exists (already deleted or expired)
+
+**curl example:**
+
+```bash
+curl http://localhost:3001/api/delete/<deleteKey>
 ```
 
 ---

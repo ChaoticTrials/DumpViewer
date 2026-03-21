@@ -27,6 +27,50 @@ function loadAuthToken(): string {
   }
 }
 const AUTH_TOKEN = loadAuthToken();
+const KEYS_DIR = path.join(DUMPS_DIR, 'keys');
+
+function loadOrGenerateKeyPair(): { publicKey: crypto.KeyObject; privateKey: crypto.KeyObject } {
+  const pubPath = path.join(KEYS_DIR, 'delete_public.pem');
+  const privPath = path.join(KEYS_DIR, 'delete_private.pem');
+  if (fs.existsSync(pubPath) && fs.existsSync(privPath)) {
+    return {
+      publicKey: crypto.createPublicKey(fs.readFileSync(pubPath, 'utf8')),
+      privateKey: crypto.createPrivateKey(fs.readFileSync(privPath, 'utf8')),
+    };
+  }
+  const { publicKey: pub, privateKey: priv } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+  fs.mkdirSync(KEYS_DIR, { recursive: true });
+  fs.writeFileSync(pubPath, pub, { mode: 0o644 });
+  fs.writeFileSync(privPath, priv, { mode: 0o600 });
+  return { publicKey: crypto.createPublicKey(pub), privateKey: crypto.createPrivateKey(priv) };
+}
+
+const { publicKey: DELETE_PUBLIC_KEY, privateKey: DELETE_PRIVATE_KEY } = loadOrGenerateKeyPair();
+
+export function generateDeleteKey(id: string): string {
+  const encrypted = crypto.privateEncrypt(
+    { key: DELETE_PRIVATE_KEY, padding: crypto.constants.RSA_PKCS1_PADDING },
+    Buffer.from(id, 'utf-8'),
+  );
+  return encrypted.toString('base64url');
+}
+
+export function resolveDeleteKey(key: string): string | null {
+  try {
+    const decrypted = crypto.publicDecrypt(
+      { key: DELETE_PUBLIC_KEY, padding: crypto.constants.RSA_PKCS1_PADDING },
+      Buffer.from(key, 'base64url'),
+    );
+    const id = decrypted.toString('utf-8');
+    return isValidId(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
 
 const ONE_YEAR_SECS = 365 * 24 * 60 * 60;
 const ONE_YEAR_MS = ONE_YEAR_SECS * 1000;
@@ -396,7 +440,7 @@ app.post('/api/dump/import', uploadLimiter, requireUploadToken, async (req, res)
     return;
   }
 
-  res.json({ id });
+  res.json({ id, deleteKey: generateDeleteKey(id) });
 });
 
 // POST /api/dump/upload
@@ -426,7 +470,7 @@ app.post('/api/dump/upload', uploadLimiter, requireUploadToken, upload.single('f
     return;
   }
 
-  res.json({ id });
+  res.json({ id, deleteKey: generateDeleteKey(id) });
 });
 
 // GET /api/dump/:id
@@ -723,6 +767,33 @@ app.get('/api/dump/:id/modpack', async (req, res) => {
     res.setHeader('Content-Disposition', 'attachment; filename="SkyBlock.mrpack"');
     res.send(outZip.toBuffer());
   }
+});
+
+// GET /api/delete/:key — delete a dump using its delete key (no auth required)
+app.get('/api/delete/:key', (req, res) => {
+  const key = req.params['key'] as string;
+  const id = resolveDeleteKey(key);
+  if (!id) {
+    res.status(400).type('text/plain').send('Invalid delete key');
+    return;
+  }
+  const filePath = path.join(DUMPS_DIR, `${id}.zip`);
+  if (!fs.existsSync(filePath)) {
+    res.status(404).type('text/plain').send('Not found');
+    return;
+  }
+  try {
+    fs.unlinkSync(filePath);
+    try {
+      fs.unlinkSync(path.join(DUMPS_DIR, `${id}.meta`));
+    } catch {
+      /* no sidecar is fine */
+    }
+  } catch {
+    res.status(500).type('text/plain').send('Failed to delete dump');
+    return;
+  }
+  res.type('text/plain').send('Deleted');
 });
 
 // GET /health

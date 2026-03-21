@@ -7,7 +7,17 @@ import os from 'node:os';
 import path from 'node:path';
 
 // DUMPS_DIR is set via vitest.config.ts env before module load
-import { app, getDumpsDir, isSafeUrl, isValidId, validateAndExtractManifestId, cleanupOldDumps, parseTtlMs } from './app.js';
+import {
+  app,
+  getDumpsDir,
+  isSafeUrl,
+  isValidId,
+  validateAndExtractManifestId,
+  cleanupOldDumps,
+  parseTtlMs,
+  generateDeleteKey,
+  resolveDeleteKey,
+} from './app.js';
 
 // The test dumps directory is whatever app.ts resolved at module load time
 const TEST_DUMPS_DIR = getDumpsDir();
@@ -294,11 +304,15 @@ describe('POST /api/dump/upload', () => {
     expect(res.body).toHaveProperty('error');
   });
 
-  it('returns 200 { id, url } for a valid SBB dump zip', async () => {
+  it('returns 200 { id, deleteKey } for a valid SBB dump zip', async () => {
     const manifestId = '550e8400-e29b-41d4-a716-446655440000';
     const buf = buildValidSbbZip(manifestId);
     const res = await request(app).post('/api/dump/upload').attach('file', buf, 'dump.zip');
     expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('id', manifestId);
+    expect(res.body).toHaveProperty('deleteKey');
+    expect(typeof res.body.deleteKey).toBe('string');
+    expect(res.body.deleteKey.length).toBeGreaterThan(0);
 
     // Verify the file was written to disk
     const stored = path.join(TEST_DUMPS_DIR, `${manifestId}.zip`);
@@ -397,7 +411,7 @@ describe('POST /api/dump/import', () => {
     expect(res.body).toHaveProperty('error');
   });
 
-  it('returns 200 { id, url } on success (mocked fetch)', async () => {
+  it('returns 200 { id, deleteKey } on success (mocked fetch)', async () => {
     const validId = '550e8400-e29b-41d4-a716-446655440002';
     const zipBuf = buildValidSbbZip(validId);
     let sent = false;
@@ -418,6 +432,10 @@ describe('POST /api/dump/import', () => {
 
     const res = await request(app).post('/api/dump/import').send({ url: 'https://example.com/dump.zip' });
     expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('id', validId);
+    expect(res.body).toHaveProperty('deleteKey');
+    expect(typeof res.body.deleteKey).toBe('string');
+    expect(res.body.deleteKey.length).toBeGreaterThan(0);
   });
 });
 
@@ -446,6 +464,83 @@ describe('DELETE /api/dump/:id', () => {
     const res = await request(app).delete(`/api/dump/${id}`);
     expect(res.status).toBe(204);
     expect(fs.existsSync(path.join(TEST_DUMPS_DIR, `${id}.zip`))).toBe(false);
+  });
+});
+
+// ============================================================
+// generateDeleteKey / resolveDeleteKey unit tests
+// ============================================================
+
+describe('generateDeleteKey / resolveDeleteKey', () => {
+  it('roundtrips a valid UUID v4', () => {
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const key = generateDeleteKey(id);
+    expect(resolveDeleteKey(key)).toBe(id);
+  });
+
+  it('returns null for a random string', () => {
+    expect(resolveDeleteKey('notavalidkey')).toBeNull();
+  });
+
+  it('returns null for an empty string', () => {
+    expect(resolveDeleteKey('')).toBeNull();
+  });
+
+  it('produces different keys each call (PKCS1 is non-deterministic)', () => {
+    const id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const key1 = generateDeleteKey(id);
+    const key2 = generateDeleteKey(id);
+    // Both must resolve to the same id
+    expect(resolveDeleteKey(key1)).toBe(id);
+    expect(resolveDeleteKey(key2)).toBe(id);
+  });
+});
+
+// ============================================================
+// GET /api/delete/:key
+// ============================================================
+
+describe('GET /api/delete/:key', () => {
+  it('returns 400 for an invalid key', async () => {
+    const res = await request(app).get('/api/delete/notavalidkey');
+    expect(res.status).toBe(400);
+    expect(res.text).toBe('Invalid delete key');
+  });
+
+  it('returns 404 when the dump no longer exists', async () => {
+    const id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const key = generateDeleteKey(id);
+    const res = await request(app).get(`/api/delete/${key}`);
+    expect(res.status).toBe(404);
+    expect(res.text).toBe('Not found');
+  });
+
+  it('deletes the dump and returns "Deleted"', async () => {
+    const id = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const buf = buildValidSbbZip(id);
+    const zipPath = path.join(TEST_DUMPS_DIR, `${id}.zip`);
+    fs.writeFileSync(zipPath, buf);
+
+    const key = generateDeleteKey(id);
+    const res = await request(app).get(`/api/delete/${key}`);
+    expect(res.status).toBe(200);
+    expect(res.text).toBe('Deleted');
+    expect(fs.existsSync(zipPath)).toBe(false);
+  });
+
+  it('also removes the .meta sidecar when present', async () => {
+    const id = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const buf = buildValidSbbZip(id);
+    const zipPath = path.join(TEST_DUMPS_DIR, `${id}.zip`);
+    const metaPath = path.join(TEST_DUMPS_DIR, `${id}.meta`);
+    fs.writeFileSync(zipPath, buf);
+    fs.writeFileSync(metaPath, JSON.stringify({ expiresAt: Date.now() + 1000 }));
+
+    const key = generateDeleteKey(id);
+    const res = await request(app).get(`/api/delete/${key}`);
+    expect(res.status).toBe(200);
+    expect(fs.existsSync(zipPath)).toBe(false);
+    expect(fs.existsSync(metaPath)).toBe(false);
   });
 });
 
@@ -535,9 +630,10 @@ describe('Auth token protection', () => {
 
 describe('GET /api/dumps', () => {
   beforeAll(() => {
-    // Clean the test dumps dir for a known starting state
+    // Clean the test dumps dir for a known starting state (skip subdirectories)
     for (const f of fs.readdirSync(TEST_DUMPS_DIR)) {
-      fs.unlinkSync(path.join(TEST_DUMPS_DIR, f));
+      const p = path.join(TEST_DUMPS_DIR, f);
+      if (fs.statSync(p).isFile()) fs.unlinkSync(p);
     }
   });
 
