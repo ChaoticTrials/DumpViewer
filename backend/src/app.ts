@@ -80,6 +80,7 @@ const ONE_YEAR_MS = ONE_YEAR_SECS * 1000;
 // Max sizes
 const MAX_UPLOAD_BYTES = 512 * 1024 * 1024; // 512 MB
 const MAX_MANIFEST_ENTRY_BYTES = 10 * 1024 * 1024; // 10 MB for manifest.json
+const MAX_OVERRIDE_ENTRY_BYTES = 64 * 1024 * 1024; // 64 MB per modpack override entry
 
 // UUID v4 regex (Java lowercase output: 550e8400-e29b-41d4-a716-446655440000)
 const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -225,6 +226,12 @@ export function validateAndExtractManifestId(buffer: Buffer): string {
     throw new Error('manifest.json not found in zip');
   }
 
+  // Check the declared (uncompressed) size before inflating so a tiny
+  // compressed entry can't expand to gigabytes in memory (decompression bomb)
+  if (manifestEntry.header.size > MAX_MANIFEST_ENTRY_BYTES) {
+    throw new Error('manifest.json exceeds size limit');
+  }
+
   let manifest: unknown;
   const manifestData = manifestEntry.getData();
   if (manifestData.length > MAX_MANIFEST_ENTRY_BYTES) {
@@ -362,7 +369,7 @@ function extractManifestHashes(buffer: Buffer): Record<string, unknown> | undefi
   try {
     const zip = new AdmZip(buffer);
     const manifestEntry = zip.getEntry('manifest.json');
-    if (!manifestEntry) return undefined;
+    if (!manifestEntry || manifestEntry.header.size > MAX_MANIFEST_ENTRY_BYTES) return undefined;
     const manifest = JSON.parse(manifestEntry.getData().toString('utf-8')) as Record<string, unknown>;
     const h = manifest['hashes'];
     if (typeof h === 'object' && h !== null && !Array.isArray(h)) {
@@ -732,6 +739,9 @@ app.get('/api/dump/:id/modpack', async (req, res) => {
     if (!outPath) continue;
     const zipEntry = zip.getEntry(entryPath);
     if (!zipEntry) continue;
+    // Skip entries whose declared (uncompressed) size is implausibly large
+    // instead of inflating them into memory (decompression bomb)
+    if (zipEntry.header.size > MAX_OVERRIDE_ENTRY_BYTES) continue;
     overrideEntries.push({ outPath, data: zipEntry.getData() });
   }
 

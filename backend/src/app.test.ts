@@ -299,6 +299,19 @@ describe('validateAndExtractManifestId()', () => {
     expect(() => validateAndExtractManifestId(zip.toBuffer())).toThrow('manifest.json exceeds size limit');
   });
 
+  it('rejects a manifest.json whose header declares an oversized entry without decompressing it', () => {
+    // Tamper the central-directory uncompressed-size field to claim >10 MB
+    // while the actual data stays tiny — only a header pre-check catches this.
+    const zip = new AdmZip();
+    zip.addFile('manifest.json', Buffer.from('{}', 'utf-8'));
+    const buf = zip.toBuffer();
+    const cdOffset = buf.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+    expect(cdOffset).toBeGreaterThan(-1);
+    buf.writeUInt32LE(11 * 1024 * 1024, cdOffset + 24); // uncompressed size field
+    expect(new AdmZip(buf).getEntry('manifest.json')!.header.size).toBe(11 * 1024 * 1024);
+    expect(() => validateAndExtractManifestId(buf)).toThrow('manifest.json exceeds size limit');
+  });
+
   it('throws when manifest_id is not a UUID v4', () => {
     const zip = new AdmZip();
     const manifest = {
@@ -962,6 +975,28 @@ describe('GET /api/dump/:id/modpack', () => {
       const zip = new AdmZip(buffer);
       const parsed = JSON.parse(zip.getEntry('manifest.json')!.getData().toString('utf-8')) as Record<string, unknown>;
       expect(parsed['files']).toHaveLength(0);
+    });
+
+    it('skips override entries whose header declares an oversized entry', async () => {
+      const id = '12340000-0000-4000-8000-cf0000000099';
+      const dumpBuf = buildModpackTestDump({
+        manifestId: id,
+        files: [
+          { path: 'config/huge.json', data: '{}' },
+          { path: 'config/small.json', data: '{"keep": true}' },
+        ],
+      });
+      // Tamper the central-directory uncompressed-size of huge.json to claim 65 MB
+      const nameOffset = dumpBuf.indexOf(Buffer.from('config/huge.json', 'utf-8'), dumpBuf.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])));
+      const cdOffset = nameOffset - 46; // central-directory header is 46 bytes before the name
+      expect(dumpBuf.readUInt32LE(cdOffset)).toBe(0x02014b50);
+      dumpBuf.writeUInt32LE(65 * 1024 * 1024, cdOffset + 24);
+      fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.zip`), dumpBuf);
+
+      const { buffer } = await getModpackBuffer(`/api/dump/${id}/modpack?platform=curseforge`);
+      const zip = new AdmZip(buffer);
+      expect(zip.getEntry('overrides/config/skyblockbuilder/small.json')).not.toBeNull();
+      expect(zip.getEntry('overrides/config/skyblockbuilder/huge.json')).toBeNull();
     });
 
     it('includes a mod entry when the CurseForge API returns a matching file', async () => {
