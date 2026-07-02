@@ -97,14 +97,18 @@ Change the host port (`3001:3001` → `8080:3001`) if needed.
 
 ### Environment variables
 
-| Variable          | Default                         | Description                                                                                                                                                      |
-| ----------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AUTH_TOKEN`      | _(empty)_                       | Secret token required for upload, import, delete, and list. Leave empty for open access. Generate with `openssl rand -hex 32`.                                   |
-| `AUTH_TOKEN_FILE` | `/run/secrets/dumpviewer_token` | File to read the auth token from when `AUTH_TOKEN` is not set (e.g. a Docker secret).                                                                            |
-| `ALLOWED_ORIGIN`  | `*`                             | Value for the `Access-Control-Allow-Origin` response header. Set to your frontend's exact origin (e.g. `https://dumps.example.com`) for a production deployment. |
-| `DUMPS_DIR`       | `./dumps`                       | Directory where uploaded zip files are stored. Pre-set to `/dumps` in the Docker image.                                                                          |
-| `PORT`            | `3001`                          | Port the server listens on inside the container.                                                                                                                 |
-| `FRONTEND_DIR`    | `../frontend/dist`              | Directory of the built frontend served in production (resolved relative to the compiled backend).                                                                |
+| Variable             | Default                         | Description                                                                                                                                                      |
+| -------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_TOKEN`         | _(empty)_                       | Secret token required for upload, import, delete, and list. Leave empty for open access. Generate with `openssl rand -hex 32`.                                   |
+| `AUTH_TOKEN_FILE`    | `/run/secrets/dumpviewer_token` | File to read the auth token from when `AUTH_TOKEN` is not set (e.g. a Docker secret).                                                                            |
+| `ALLOWED_ORIGIN`     | `*`                             | Value for the `Access-Control-Allow-Origin` response header. Set to your frontend's exact origin (e.g. `https://dumps.example.com`) for a production deployment. |
+| `DUMPS_DIR`          | `./dumps`                       | Directory where uploaded zip files are stored. Pre-set to `/dumps` in the Docker image.                                                                          |
+| `PORT`               | `3001`                          | Port the server listens on inside the container.                                                                                                                 |
+| `FRONTEND_DIR`       | `../frontend/dist`              | Directory of the built frontend served in production (resolved relative to the compiled backend).                                                                |
+| `AUTH_FAIL_LIMIT`    | `10`                            | Failed auth attempts (401s) allowed per IP per 15 minutes before all token-gated endpoints answer `429` for that IP.                                             |
+| `AUTH_FAIL_DELAY_MS` | `500`                           | Delay in milliseconds before a failed auth attempt is answered — slows down token guessing.                                                                      |
+| `GENERAL_RATE_LIMIT` | `100`                           | Requests per IP per 10s on dump read/list/delete endpoints.                                                                                                      |
+| `MODPACK_RATE_LIMIT` | `10`                            | Modpack exports per IP per 60s (each export calls external platform APIs).                                                                                       |
 
 ### Persisting dumps
 

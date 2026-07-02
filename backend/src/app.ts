@@ -85,12 +85,50 @@ const MAX_OVERRIDE_ENTRY_BYTES = 64 * 1024 * 1024; // 64 MB per modpack override
 // UUID v4 regex (Java lowercase output: 550e8400-e29b-41d4-a716-446655440000)
 const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
+// Helper: read a positive integer from the environment, with a default
+function envInt(name: string, fallback: number): number {
+  const parsed = parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+// Delay before answering a failed auth attempt — caps token-guessing throughput
+const AUTH_FAIL_DELAY_MS = envInt('AUTH_FAIL_DELAY_MS', 500);
+
 // Rate limiter for POST endpoints: max 10 requests per 10s (avg 1/sec)
 const uploadLimiter = rateLimit({ windowMs: 10_000, limit: 10, standardHeaders: true, legacyHeaders: false });
 
 // Separate bucket for the auth-free delete-by-key routes so delete traffic
 // can't starve uploads (and vice versa)
 const deleteLimiter = rateLimit({ windowMs: 10_000, limit: 10, standardHeaders: true, legacyHeaders: false });
+
+// General per-IP bucket for the remaining API endpoints (reads, list, delete-by-id)
+const generalLimiter = rateLimit({
+  windowMs: 10_000,
+  limit: envInt('GENERAL_RATE_LIMIT', 100),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Modpack generation fans out to external platform APIs — keep it on a tight budget
+const modpackLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: envInt('MODPACK_RATE_LIMIT', 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Brute-force protection for all token-gated endpoints: only requests that end
+// in 401 count toward the budget, so legitimate admin use is never throttled.
+// Once exceeded, the IP is locked out (even with a valid token) until the
+// window expires.
+const authFailureLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: envInt('AUTH_FAIL_LIMIT', 10),
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: (_req, res) => res.statusCode !== 401,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Ensure dumps directory exists
 fs.mkdirSync(DUMPS_DIR, { recursive: true });
@@ -443,7 +481,8 @@ function requireUploadToken(req: express.Request, res: express.Response, next: e
   }
 
   if (!valid) {
-    res.status(401).json({ error: 'Invalid or missing auth token' });
+    // Constant delay on failure caps guessing throughput without slowing valid requests
+    setTimeout(() => res.status(401).json({ error: 'Invalid or missing auth token' }), AUTH_FAIL_DELAY_MS);
     return;
   }
 
@@ -451,7 +490,7 @@ function requireUploadToken(req: express.Request, res: express.Response, next: e
 }
 
 // POST /api/dump/import
-app.post('/api/dump/import', uploadLimiter, requireUploadToken, async (req, res) => {
+app.post('/api/dump/import', uploadLimiter, authFailureLimiter, requireUploadToken, async (req, res) => {
   const { url, ttl } = req.body as { url?: unknown; ttl?: unknown };
   if (typeof url !== 'string' || !url) {
     res.status(400).json({ error: 'Missing or invalid url' });
@@ -529,7 +568,7 @@ app.post('/api/dump/import', uploadLimiter, requireUploadToken, async (req, res)
 });
 
 // POST /api/dump/upload
-app.post('/api/dump/upload', uploadLimiter, requireUploadToken, upload.single('file'), (req, res) => {
+app.post('/api/dump/upload', uploadLimiter, authFailureLimiter, requireUploadToken, upload.single('file'), (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: 'No file uploaded' });
     return;
@@ -559,7 +598,7 @@ app.post('/api/dump/upload', uploadLimiter, requireUploadToken, upload.single('f
 });
 
 // GET /api/dump/:id
-app.get('/api/dump/:id', (req, res) => {
+app.get('/api/dump/:id', generalLimiter, (req, res) => {
   const id = req.params['id'] as string;
 
   if (!isValidId(id)) {
@@ -600,7 +639,7 @@ app.get('/api/dump/:id', (req, res) => {
 });
 
 // GET /api/dump/:id/manifest — returns parsed manifest.json from the stored zip (public)
-app.get('/api/dump/:id/manifest', (req, res) => {
+app.get('/api/dump/:id/manifest', generalLimiter, (req, res) => {
   const id = req.params['id'] as string;
 
   if (!isValidId(id)) {
@@ -629,7 +668,7 @@ app.get('/api/dump/:id/manifest', (req, res) => {
 });
 
 // DELETE /api/dump/:id
-app.delete('/api/dump/:id', requireUploadToken, (req, res) => {
+app.delete('/api/dump/:id', generalLimiter, authFailureLimiter, requireUploadToken, (req, res) => {
   const id = req.params['id'] as string;
 
   if (!isValidId(id)) {
@@ -659,7 +698,7 @@ app.delete('/api/dump/:id', requireUploadToken, (req, res) => {
 });
 
 // GET /api/dumps
-app.get('/api/dumps', requireUploadToken, (_req, res) => {
+app.get('/api/dumps', generalLimiter, authFailureLimiter, requireUploadToken, (_req, res) => {
   let files: string[];
   try {
     files = fs.readdirSync(DUMPS_DIR).filter((f) => f.endsWith('.zip'));
@@ -715,7 +754,7 @@ app.get('/api/dumps', requireUploadToken, (_req, res) => {
 });
 
 // GET /api/dump/:id/modpack?platform=curseforge|modrinth
-app.get('/api/dump/:id/modpack', async (req, res) => {
+app.get('/api/dump/:id/modpack', modpackLimiter, async (req, res) => {
   const id = req.params['id'] as string;
 
   if (!isValidId(id)) {

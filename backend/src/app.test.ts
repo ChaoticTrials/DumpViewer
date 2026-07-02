@@ -825,6 +825,107 @@ describe('Auth token protection', () => {
 });
 
 // ============================================================
+// Auth brute-force protection
+// Fresh module instances so the limiter buckets and env-based
+// limits don't interfere with the rest of the suite.
+// ============================================================
+
+describe('Auth brute-force protection', () => {
+  afterEach(() => {
+    delete process.env.AUTH_TOKEN;
+    delete process.env.AUTH_FAIL_LIMIT;
+    delete process.env.AUTH_FAIL_DELAY_MS;
+    vi.resetModules();
+  });
+
+  async function freshApp(env: Record<string, string>): Promise<Express> {
+    Object.assign(process.env, env);
+    vi.resetModules();
+    const mod = await import('./app.js');
+    return mod.app;
+  }
+
+  it('locks out an IP after too many failed auth attempts, without counting successful ones', async () => {
+    const app2 = await freshApp({ AUTH_TOKEN: 'brute-secret', AUTH_FAIL_LIMIT: '2', AUTH_FAIL_DELAY_MS: '0' });
+
+    // Successful requests never count toward the failure budget
+    for (let i = 0; i < 3; i++) {
+      const ok = await request(app2).get('/api/dumps').set('Authorization', 'Bearer brute-secret');
+      expect(ok.status).toBe(200);
+    }
+
+    // Two failures fill the budget…
+    for (let i = 0; i < 2; i++) {
+      const bad = await request(app2).get('/api/dumps').set('Authorization', 'Bearer wrong');
+      expect(bad.status).toBe(401);
+    }
+
+    // …after which even a valid token is locked out
+    const blockedBad = await request(app2).get('/api/dumps').set('Authorization', 'Bearer wrong');
+    expect(blockedBad.status).toBe(429);
+    const blockedGood = await request(app2).get('/api/dumps').set('Authorization', 'Bearer brute-secret');
+    expect(blockedGood.status).toBe(429);
+  });
+
+  it('applies the failure budget to DELETE /api/dump/:id as well', async () => {
+    const app2 = await freshApp({ AUTH_TOKEN: 'brute-secret', AUTH_FAIL_LIMIT: '2', AUTH_FAIL_DELAY_MS: '0' });
+
+    for (let i = 0; i < 2; i++) {
+      const bad = await request(app2).delete('/api/dump/00000000-0000-4000-8000-000000000009').set('Authorization', 'Bearer wrong');
+      expect(bad.status).toBe(401);
+    }
+    const blocked = await request(app2).delete('/api/dump/00000000-0000-4000-8000-000000000009').set('Authorization', 'Bearer wrong');
+    expect(blocked.status).toBe(429);
+  });
+
+  it('delays failed auth responses by AUTH_FAIL_DELAY_MS', async () => {
+    const app2 = await freshApp({ AUTH_TOKEN: 'brute-secret', AUTH_FAIL_DELAY_MS: '120' });
+
+    const start = Date.now();
+    const res = await request(app2).get('/api/dumps').set('Authorization', 'Bearer wrong');
+    const elapsed = Date.now() - start;
+    expect(res.status).toBe(401);
+    expect(elapsed).toBeGreaterThanOrEqual(100);
+  });
+
+  it('does not delay successful auth', async () => {
+    const app2 = await freshApp({ AUTH_TOKEN: 'brute-secret', AUTH_FAIL_DELAY_MS: '120' });
+
+    const start = Date.now();
+    const res = await request(app2).get('/api/dumps').set('Authorization', 'Bearer brute-secret');
+    const elapsed = Date.now() - start;
+    expect(res.status).toBe(200);
+    expect(elapsed).toBeLessThan(100);
+  });
+});
+
+// ============================================================
+// General rate limiting on read endpoints
+// ============================================================
+
+describe('General rate limiter', () => {
+  afterEach(() => {
+    delete process.env.GENERAL_RATE_LIMIT;
+    vi.resetModules();
+  });
+
+  it('throttles GET /api/dump/:id after the limit is exceeded', async () => {
+    process.env.GENERAL_RATE_LIMIT = '2';
+    vi.resetModules();
+    const mod = await import('./app.js');
+    const app2 = mod.app;
+
+    const id = '00000000-0000-4000-8000-00000000000a';
+    for (let i = 0; i < 2; i++) {
+      const res = await request(app2).get(`/api/dump/${id}`);
+      expect(res.status).toBe(404); // not stored, but not throttled
+    }
+    const blocked = await request(app2).get(`/api/dump/${id}`);
+    expect(blocked.status).toBe(429);
+  });
+});
+
+// ============================================================
 // GET /api/dumps
 // (placed last so the beforeAll cleanup doesn't affect earlier tests)
 // ============================================================

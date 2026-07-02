@@ -11,6 +11,11 @@ services:
       # Set this to the origin of your frontend (e.g. https://dumps.example.com).
       # Leave empty to allow requests from any origin.
       ALLOWED_ORIGIN: ''
+      # Rate limiting / brute-force tuning (all optional, see README):
+      # AUTH_FAIL_LIMIT: '10'        # failed auth attempts per IP / 15 min before lockout
+      # AUTH_FAIL_DELAY_MS: '500'    # delay before answering a failed auth attempt
+      # GENERAL_RATE_LIMIT: '100'    # read/list/delete requests per IP / 10 s
+      # MODPACK_RATE_LIMIT: '10'     # modpack exports per IP / 60 s
     volumes:
       - dumps:/dumps
     restart: unless-stopped

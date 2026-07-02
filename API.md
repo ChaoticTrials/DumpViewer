@@ -18,6 +18,19 @@ X-Auth-Token: <token>
 
 If `AUTH_TOKEN` is empty, all write endpoints are open. Read endpoints are always public.
 
+### Rate limiting & brute-force protection
+
+All limits are per IP:
+
+| Bucket        | Endpoints                                                                   | Default limit                     |
+| ------------- | --------------------------------------------------------------------------- | --------------------------------- |
+| Upload        | `POST /api/dump/upload`, `POST /api/dump/import`                            | 10 / 10 s                         |
+| Delete-by-key | `GET`/`POST /api/delete/:key`                                               | 10 / 10 s                         |
+| General       | `GET /api/dump/:id`, `…/manifest`, `GET /api/dumps`, `DELETE /api/dump/:id` | 100 / 10 s (`GENERAL_RATE_LIMIT`) |
+| Modpack       | `GET /api/dump/:id/modpack`                                                 | 10 / 60 s (`MODPACK_RATE_LIMIT`)  |
+
+Token-gated endpoints additionally share an **auth-failure budget**: only requests answered with `401` count, so legitimate use is never throttled. After `AUTH_FAIL_LIMIT` failures (default 10) within 15 minutes, the IP receives `429` for all token-gated requests — even with a valid token — until the window expires. Failed auth attempts are also delayed by `AUTH_FAIL_DELAY_MS` (default 500 ms) before the `401` is sent.
+
 ---
 
 ## `GET /health`

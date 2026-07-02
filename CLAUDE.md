@@ -68,13 +68,13 @@ The frontend can parse and display dumps entirely locally — no upload required
 
 **Delete keys** are RSA-2048 tokens: `privateEncrypt(id)` → base64url. The key pair is generated on first startup and persisted in `{DUMPS_DIR}/keys/`. `GET /api/delete/:key` shows an HTML confirmation page (never deletes — safe against link prefetchers); `POST /api/delete/:key` performs the deletion. Both recover the ID by decrypting with the public key — no token storage needed — and share a dedicated rate-limit bucket.
 
-**Auth** is global: a single `AUTH_TOKEN` (env var or `/run/secrets/dumpviewer_token`) gates all write endpoints. The delete-by-key routes are intentionally auth-free.
+**Auth** is global: a single `AUTH_TOKEN` (env var or `/run/secrets/dumpviewer_token`) gates all write endpoints. The delete-by-key routes are intentionally auth-free. Brute-force protection: failed auth attempts are delayed by `AUTH_FAIL_DELAY_MS` (default 500 ms) and counted by a dedicated `authFailureLimiter` (only 401 responses count, via `requestWasSuccessful`; `AUTH_FAIL_LIMIT` failures per 15 min → IP lockout). Every endpoint sits behind a rate-limit bucket except `/health`; `GENERAL_RATE_LIMIT` and `MODPACK_RATE_LIMIT` tune the read and modpack buckets.
 
 **SSRF protection** for URL imports is two-layered: `isSafeUrl()` string checks, plus `safeLookup()` — a validating DNS lookup wired into an undici `Agent` so every connection (including redirect hops) rejects hostnames resolving to private/loopback/link-local addresses (DNS rebinding). Import fetches therefore go through `undici`'s `fetch`, not the global one; `app.test.ts` mocks `undici.fetch` by delegating to `globalThis.fetch` so `vi.stubGlobal('fetch', ...)` still intercepts imports.
 
 **Zip handling**: always check `entry.header.size` (declared uncompressed size) against a limit before calling `getData()` on untrusted zips — decompression-bomb protection (`MAX_MANIFEST_ENTRY_BYTES`, `MAX_OVERRIDE_ENTRY_BYTES`).
 
-**Test rate-limit budget**: the upload rate limiter (10 POSTs / 10 s) is shared across the whole `app.test.ts` run and is fully consumed by the existing suite — a net-new `POST /api/dump/*` request to `app` makes the _last_ POSTs in the run fail with 429. Seed dumps by writing `{id}.zip`/`{id}.meta` directly to disk, piggyback assertions onto existing successful uploads, or unit-test exported helpers instead.
+**Test rate-limit budget**: the upload rate limiter (10 POSTs / 10 s) is shared across the whole `app.test.ts` run and is fully consumed by the existing suite — a net-new `POST /api/dump/*` request to `app` makes the _last_ POSTs in the run fail with 429. Seed dumps by writing `{id}.zip`/`{id}.meta` directly to disk, piggyback assertions onto existing successful uploads, or unit-test exported helpers instead. The general/modpack/auth-failure buckets are env-configurable and set very high in `vitest.config.ts`; to test limiter behaviour itself, set the env var low and re-import the app with `vi.resetModules()` (fresh module = fresh buckets).
 
 ### Frontend (`frontend/src/`)
 
