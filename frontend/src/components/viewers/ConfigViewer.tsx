@@ -114,6 +114,9 @@ export default function ConfigViewer({ fullContent, changedContent, changedForma
 
     function diffLineProps(lineNumber: number): HTMLAttributes<HTMLElement> {
       if (tabDiff === 'full' && diffErrorLine === lineNumber) return { className: 'line-error' };
+      // Diff +/-/@@ classes only apply to the diff tab — the full tab renders
+      // fullContent, whose line numbers don't map onto rawDiffLines
+      if (tabDiff !== 'diff') return {};
       const line = rawDiffLines[lineNumber - 1] ?? '';
       if (line.startsWith('+++') || line.startsWith('---')) return { className: 'line-diff-meta' };
       if (line.startsWith('+')) return { className: 'line-diff-added' };

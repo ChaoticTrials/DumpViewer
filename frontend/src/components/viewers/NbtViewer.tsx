@@ -176,7 +176,18 @@ function toSnbt(value: unknown, type: number, indent: number = 0, full = false):
 }
 
 async function decompress(buffer: ArrayBuffer): Promise<ArrayBuffer> {
-  const ds = new DecompressionStream('gzip');
+  // Detect compression by magic bytes: gzip (1f 8b), zlib (78 01/5e/9c/da);
+  // anything else is treated as uncompressed NBT
+  const bytes = new Uint8Array(buffer);
+  let format: 'gzip' | 'deflate';
+  if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    format = 'gzip';
+  } else if (bytes.length >= 2 && bytes[0] === 0x78 && [0x01, 0x5e, 0x9c, 0xda].includes(bytes[1])) {
+    format = 'deflate';
+  } else {
+    return buffer;
+  }
+  const ds = new DecompressionStream(format);
   const writer = ds.writable.getWriter();
   writer.write(new Uint8Array(buffer));
   writer.close();

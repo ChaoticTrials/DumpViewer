@@ -115,7 +115,19 @@ export default function DropZone({ onFile, error }: Props) {
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
     >
-      <div className="dropzone-box" onClick={() => inputRef.current?.click()}>
+      <div
+        className="dropzone-box"
+        role="button"
+        tabIndex={0}
+        aria-label="Choose a dump zip file"
+        onClick={() => inputRef.current?.click()}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            inputRef.current?.click();
+          }
+        }}
+      >
         <span className="dropzone-icon">📦</span>
         <p className="dropzone-title">Drop a dump .zip here</p>
         <p className="dropzone-sub">or click to browse</p>

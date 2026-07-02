@@ -10,7 +10,8 @@ function isBinaryPath(path: string): boolean {
 }
 
 export async function parseDump(file: File): Promise<ParsedDump> {
-  const zip = await JSZip.loadAsync(file);
+  // Pass an ArrayBuffer — JSZip doesn't recognize the File type in all runtimes
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
 
   const manifestEntry = zip.file('manifest.json');
   if (!manifestEntry) throw new Error('Invalid dump file: missing manifest.json');

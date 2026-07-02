@@ -4,6 +4,7 @@ import { formatRelativeExpiry } from '../utils/formatExpiry';
 import ThemeToggle from './ThemeToggle';
 import { HeaderLogo } from './HeaderLogo.tsx';
 import { useIsMobile } from '../utils/useIsMobile';
+import { downloadBlob } from '../utils/download';
 
 const _rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
 const API_URL: string = import.meta.env.PROD ? (_rawApiUrl ?? '') : (_rawApiUrl ?? '');
@@ -78,12 +79,7 @@ export default function ManifestBanner({ manifest, expiresAt, onReset, onBurgerC
       const res = await fetch(`${API_URL}/api/dump/${manifest.manifest_id}/modpack?platform=${platform}`);
       if (!res.ok) throw new Error('Failed');
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `SkyBlock-modpack${ext}`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `SkyBlock-modpack${ext}`);
     } catch {
       /* silent failure */
     } finally {

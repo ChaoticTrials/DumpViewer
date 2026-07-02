@@ -36,7 +36,7 @@ export async function parseDump(file: File): Promise<ParsedDump> {
   // parseDumpV1 reads the zip identically for all versions; the manifest JSON
   // is returned as-is (extra fields like `hashes` are present in the raw data).
   const result = await parseDumpV1(file);
-  return result as unknown as ParsedDump;
+  return { manifest: parseManifest(result.manifest), files: result.files };
 }
 
 /**

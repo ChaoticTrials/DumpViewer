@@ -7,37 +7,19 @@ import LogViewer from './viewers/LogViewer';
 import CrashReportViewer from './viewers/CrashReportViewer';
 import BinaryViewer from './viewers/BinaryViewer';
 import NbtViewer from './viewers/NbtViewer';
+import { downloadBlob } from '../utils/download';
 
 interface Props {
   selected: SelectedFile | null;
   dump: ParsedDump;
 }
 
-// Strip RTLO (U+202E), null bytes, and other bidirectional override characters
-// that could disguise a filename's apparent extension in the browser save dialog.
-function sanitizeFilename(name: string): string {
-  // eslint-disable-next-line no-control-regex
-  return name.replace(/[\u202e\u200f\u200e\u202b\u202a\u0000]/g, '');
-}
-
 function downloadFile(filename: string, content: string) {
-  const blob = new Blob([content], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = sanitizeFilename(filename);
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(new Blob([content], { type: 'text/plain' }), filename);
 }
 
 function downloadBinaryFile(filename: string, buffer: ArrayBuffer) {
-  const blob = new Blob([buffer], { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = sanitizeFilename(filename);
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(new Blob([buffer], { type: 'application/octet-stream' }), filename);
 }
 
 function copyToClipboard(text: string) {
