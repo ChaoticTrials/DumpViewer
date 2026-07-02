@@ -105,6 +105,7 @@ Returns the zip with `Content-Type: application/zip`. Returns `404` if no dump w
 | Header         | Description                                                                                                                 |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `X-Expires-At` | ISO 8601 timestamp when the dump will be deleted (e.g. `2027-03-16T12:00:00.000Z`). Present only when a TTL sidecar exists. |
+| `Expires`      | Same timestamp in HTTP-date format, for caches. Present only when a TTL sidecar exists.                                     |
 
 ---
 

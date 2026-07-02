@@ -44,6 +44,8 @@ When the server has `AUTH_TOKEN` set, an **Auth token** field appears in the URL
 
 The token is only required for write operations (upload, import, delete, list). Drag-and-drop and viewing already-stored dumps at `/<id>` are always public.
 
+Uploading or importing also returns a `deleteKey` — anyone with that key can delete just that dump without the auth token: opening `/api/delete/<deleteKey>` in a browser shows a confirmation page, and the actual deletion happens via `POST` to the same URL (see [API.md](API.md)).
+
 To push a dump to the server from the command line, use the API directly (see [API.md](API.md)).
 
 ---
@@ -87,12 +89,14 @@ Change the host port (`3001:3001` → `8080:3001`) if needed.
 
 ### Environment variables
 
-| Variable         | Default   | Description                                                                                                                                                      |
-| ---------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AUTH_TOKEN`     | _(empty)_ | Secret token required for upload, import, delete, and list. Leave empty for open access. Generate with `openssl rand -hex 32`.                                   |
-| `ALLOWED_ORIGIN` | `*`       | Value for the `Access-Control-Allow-Origin` response header. Set to your frontend's exact origin (e.g. `https://dumps.example.com`) for a production deployment. |
-| `DUMPS_DIR`      | `./dumps` | Directory where uploaded zip files are stored. Pre-set to `/dumps` in the Docker image.                                                                          |
-| `PORT`           | `3001`    | Port the server listens on inside the container.                                                                                                                 |
+| Variable          | Default                         | Description                                                                                                                                                      |
+| ----------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_TOKEN`      | _(empty)_                       | Secret token required for upload, import, delete, and list. Leave empty for open access. Generate with `openssl rand -hex 32`.                                   |
+| `AUTH_TOKEN_FILE` | `/run/secrets/dumpviewer_token` | File to read the auth token from when `AUTH_TOKEN` is not set (e.g. a Docker secret).                                                                            |
+| `ALLOWED_ORIGIN`  | `*`                             | Value for the `Access-Control-Allow-Origin` response header. Set to your frontend's exact origin (e.g. `https://dumps.example.com`) for a production deployment. |
+| `DUMPS_DIR`       | `./dumps`                       | Directory where uploaded zip files are stored. Pre-set to `/dumps` in the Docker image.                                                                          |
+| `PORT`            | `3001`                          | Port the server listens on inside the container.                                                                                                                 |
+| `FRONTEND_DIR`    | `../frontend/dist`              | Directory of the built frontend served in production (resolved relative to the compiled backend).                                                                |
 
 ### Persisting dumps
 
@@ -222,3 +226,6 @@ All values are optional — the defaults above are used if not set. Uncomment `A
 | `npm run build:backend` | Compile the backend TypeScript                     |
 | `npm run start`         | Start the compiled backend                         |
 | `npm run install:all`   | Install dependencies for both frontend and backend |
+| `npm run test:all`      | Run frontend and backend test suites               |
+| `npm run format`        | Format the codebase with Prettier                  |
+| `npm run format:check`  | Check formatting without writing                   |
