@@ -6,7 +6,9 @@ import AdmZip from 'adm-zip';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import dns from 'node:dns';
 import { fileURLToPath } from 'node:url';
+import { Agent, fetch as undiciFetch } from 'undici';
 import { lookupCurseForgeFile, lookupModrinthVersion } from './platform-api.js';
 import type { CfModEntry, MrModEntry } from './platform-api.js';
 
@@ -104,11 +106,79 @@ const upload = multer({
   limits: { fileSize: MAX_UPLOAD_BYTES },
 });
 
+// Helper: check whether an IP address (or IP-shaped hostname) is private,
+// loopback, link-local or otherwise off-limits for imports. Returns false for
+// non-IP hostnames — those are validated at connection time by safeLookup().
+export function isForbiddenIp(ip: string): boolean {
+  const addr = ip.toLowerCase();
+
+  // Block all IPv4-mapped IPv6 addresses (::ffff:...) — covers all private IPv4 ranges
+  // Node.js URL normalizes ::ffff:127.0.0.1 to ::ffff:7f00:1, so we block all ::ffff:
+  if (/^::ffff:/.test(addr)) {
+    return true;
+  }
+
+  // Block loopback and special addresses
+  if (
+    addr === '::1' ||
+    addr === '::' || // IPv6 unspecified (equivalent to 0.0.0.0)
+    addr === '0.0.0.0'
+  ) {
+    return true;
+  }
+
+  // Block IPv4 loopback and link-local
+  if (
+    /^127\./.test(addr) ||
+    /^169\.254\./.test(addr) // link-local / cloud metadata (AWS IMDS, etc.)
+  ) {
+    return true;
+  }
+
+  // Block private IPv4 ranges (RFC 1918)
+  if (/^10\./.test(addr) || /^192\.168\./.test(addr) || /^172\.(1[6-9]|2[0-9]|3[01])\./.test(addr)) {
+    return true;
+  }
+
+  // Block IPv6 private/link-local ranges
+  return (
+    /^fc/.test(addr) || // ULA fc00::/7
+    /^fd/.test(addr) || // ULA fd00::/8
+    /^fe80/.test(addr)
+  );
+}
+
+// DNS lookup that rejects hostnames resolving to a forbidden address. Used as
+// the connection-time lookup for import fetches, so a public domain whose DNS
+// points at 127.0.0.1 / 169.254.169.254 / RFC 1918 space (DNS rebinding) can
+// never be connected to — the addresses validated here are the ones used.
+export function safeLookup(
+  hostname: string,
+  options: dns.LookupOptions,
+  callback: (err: NodeJS.ErrnoException | null, addresses: dns.LookupAddress[]) => void,
+): void {
+  dns.lookup(hostname, { ...options, all: true }, (err, addresses) => {
+    if (err) {
+      callback(err, []);
+      return;
+    }
+    const forbidden = addresses.find((a) => isForbiddenIp(a.address));
+    if (forbidden) {
+      callback(new Error(`Resolved address ${forbidden.address} is not allowed`), []);
+      return;
+    }
+    callback(null, addresses);
+  });
+}
+
+// Dispatcher that pins DNS resolution through safeLookup for every connection
+const safeDispatcher = new Agent({ connect: { lookup: safeLookup } });
+
 // Helper: fetch a URL following redirects, validating each redirect target with isSafeUrl()
 async function fetchWithSafeRedirects(url: string, signal: AbortSignal, maxRedirects = 5): Promise<Response> {
   let currentUrl = url;
   for (let i = 0; i <= maxRedirects; i++) {
-    const response = await fetch(currentUrl, { signal, redirect: 'manual' });
+    const response = await undiciFetch(currentUrl, { signal, redirect: 'manual', dispatcher: safeDispatcher });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location');
       if (!location) throw new Error('Redirect with no Location header');
@@ -117,12 +187,13 @@ async function fetchWithSafeRedirects(url: string, signal: AbortSignal, maxRedir
       currentUrl = resolved;
       continue;
     }
-    return response;
+    return response as unknown as Response;
   }
   throw new Error('Too many redirects');
 }
 
-// Helper: validate a URL is safe to fetch (no SSRF)
+// Helper: validate a URL is safe to fetch (no SSRF). String-level checks only;
+// DNS resolution is additionally validated at connection time by safeLookup().
 export function isSafeUrl(rawUrl: string): boolean {
   let parsed: URL;
   try {
@@ -139,41 +210,11 @@ export function isSafeUrl(rawUrl: string): boolean {
   // Strip IPv6 brackets — Node normalizes [::1] to hostname [::1]
   const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
 
-  // Block all IPv4-mapped IPv6 addresses (::ffff:...) — covers all private IPv4 ranges
-  // Node.js URL normalizes ::ffff:127.0.0.1 to ::ffff:7f00:1, so we block all ::ffff:
-  if (/^::ffff:/.test(hostname)) {
+  if (hostname === 'localhost') {
     return false;
   }
 
-  // Block loopback and special IPv6 addresses
-  if (
-    hostname === 'localhost' ||
-    hostname === '::1' ||
-    hostname === '::' || // IPv6 unspecified (equivalent to 0.0.0.0)
-    hostname === '0.0.0.0'
-  ) {
-    return false;
-  }
-
-  // Block IPv4 loopback and link-local
-  if (
-    /^127\./.test(hostname) ||
-    /^169\.254\./.test(hostname) // link-local / cloud metadata (AWS IMDS, etc.)
-  ) {
-    return false;
-  }
-
-  // Block private IPv4 ranges (RFC 1918)
-  if (/^10\./.test(hostname) || /^192\.168\./.test(hostname) || /^172\.(1[6-9]|2[0-9]|3[01])\./.test(hostname)) {
-    return false;
-  }
-
-  // Block IPv6 private/link-local ranges
-  return !(
-    /^fc/.test(hostname) || // ULA fc00::/7
-    /^fd/.test(hostname) || // ULA fd00::/8
-    /^fe80/.test(hostname)
-  );
+  return !isForbiddenIp(hostname);
 }
 
 // Helper: parse and validate a Skyblock Builder dump zip, returning manifest_id

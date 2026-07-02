@@ -15,7 +15,8 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
-    "multer": "2.2.0"
+    "multer": "2.2.0",
+    "undici": "^8.5.0"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",

@@ -1,5 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import type { Express } from 'express';
+
+// app.ts fetches imports through undici (for the DNS-pinning dispatcher).
+// Delegate undici.fetch to globalThis.fetch so vi.stubGlobal('fetch', ...)
+// keeps intercepting import requests in these tests.
+vi.mock('undici', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('undici')>();
+  return {
+    ...actual,
+    fetch: (input: unknown, init: unknown) => (globalThis.fetch as (i: unknown, o: unknown) => Promise<Response>)(input, init),
+  };
+});
 import request from 'supertest';
 import AdmZip from 'adm-zip';
 import fs from 'node:fs';
@@ -11,6 +22,8 @@ import {
   app,
   getDumpsDir,
   isSafeUrl,
+  isForbiddenIp,
+  safeLookup,
   isValidId,
   validateAndExtractManifestId,
   cleanupOldDumps,
@@ -137,6 +150,65 @@ describe('isSafeUrl()', () => {
   it('allows public http/https URLs', () => {
     expect(isSafeUrl('https://example.com/dump.zip')).toBe(true);
     expect(isSafeUrl('http://8.8.8.8/dump.zip')).toBe(true);
+  });
+});
+
+// ============================================================
+// isForbiddenIp() unit tests (DNS rebinding protection)
+// ============================================================
+
+describe('isForbiddenIp()', () => {
+  it('rejects IPv4 loopback and unspecified', () => {
+    expect(isForbiddenIp('127.0.0.1')).toBe(true);
+    expect(isForbiddenIp('127.255.255.255')).toBe(true);
+    expect(isForbiddenIp('0.0.0.0')).toBe(true);
+  });
+
+  it('rejects link-local / cloud metadata', () => {
+    expect(isForbiddenIp('169.254.169.254')).toBe(true);
+    expect(isForbiddenIp('169.254.0.1')).toBe(true);
+  });
+
+  it('rejects RFC 1918 ranges', () => {
+    expect(isForbiddenIp('10.0.0.1')).toBe(true);
+    expect(isForbiddenIp('192.168.1.1')).toBe(true);
+    expect(isForbiddenIp('172.16.0.1')).toBe(true);
+    expect(isForbiddenIp('172.31.255.255')).toBe(true);
+  });
+
+  it('rejects IPv6 loopback, unspecified, ULA and link-local', () => {
+    expect(isForbiddenIp('::1')).toBe(true);
+    expect(isForbiddenIp('::')).toBe(true);
+    expect(isForbiddenIp('fc00::1')).toBe(true);
+    expect(isForbiddenIp('fd12:3456::1')).toBe(true);
+    expect(isForbiddenIp('fe80::1')).toBe(true);
+  });
+
+  it('rejects IPv4-mapped IPv6', () => {
+    expect(isForbiddenIp('::ffff:127.0.0.1')).toBe(true);
+    expect(isForbiddenIp('::ffff:7f00:1')).toBe(true);
+  });
+
+  it('allows public addresses', () => {
+    expect(isForbiddenIp('8.8.8.8')).toBe(false);
+    expect(isForbiddenIp('93.184.215.14')).toBe(false);
+    expect(isForbiddenIp('2606:4700::6810:84e5')).toBe(false);
+    expect(isForbiddenIp('172.32.0.1')).toBe(false); // just outside 172.16/12
+  });
+});
+
+// ============================================================
+// safeLookup() — DNS resolution pinning for import fetches
+// ============================================================
+
+describe('safeLookup()', () => {
+  it('rejects hostnames that resolve to a forbidden address', async () => {
+    // localhost resolves to 127.0.0.1/::1 via the hosts file, no network needed
+    await expect(
+      new Promise((resolve, reject) => {
+        safeLookup('localhost', { all: true }, (err, addresses) => (err ? reject(err) : resolve(addresses)));
+      }),
+    ).rejects.toThrow(/not allowed/);
   });
 });
 
