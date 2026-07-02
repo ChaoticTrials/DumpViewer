@@ -35,6 +35,7 @@ export default function App() {
   const [notFound, setNotFound] = useState(false);
   const [expiresAt, setExpiresAt] = useState<Date | null | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
 
   const handleFile = useCallback(async (file: File) => {
     setError(undefined);
@@ -44,6 +45,7 @@ export default function App() {
       const parsed = await parseDump(file);
       setDump(parsed);
       setSelected(null);
+      setSourceFile(file);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to parse dump file.');
     } finally {
@@ -135,10 +137,12 @@ export default function App() {
       <ManifestBanner
         manifest={dump.manifest}
         expiresAt={expiresAt}
+        sourceFile={sourceFile}
         onReset={() => {
           setDump(null);
           setSelected(null);
           setExpiresAt(undefined);
+          setSourceFile(null);
           window.history.pushState({}, '', '/');
         }}
         onBurgerClick={() => setSidebarOpen(true)}

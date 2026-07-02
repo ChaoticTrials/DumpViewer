@@ -5,13 +5,17 @@ import ThemeToggle from './ThemeToggle';
 import { HeaderLogo } from './HeaderLogo.tsx';
 import { useIsMobile } from '../utils/useIsMobile';
 import { downloadBlob } from '../utils/download';
+import { FaUpload, FaDownload, FaCheck, FaSpinner } from 'react-icons/fa6';
 
 const _rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
 const API_URL: string = import.meta.env.PROD ? (_rawApiUrl ?? '') : (_rawApiUrl ?? '');
+// In dev, no VITE_API_URL means browser-only mode (no backend to upload to).
+const BACKEND_AVAILABLE = import.meta.env.PROD || _rawApiUrl !== undefined;
 
 interface Props {
   manifest: AnyManifest;
   expiresAt?: Date | null;
+  sourceFile: File | null;
   onReset: () => void;
   onBurgerClick?: () => void;
 }
@@ -50,7 +54,7 @@ function ExpiryBadge({ expiresAt }: { expiresAt: Date | null | undefined }) {
   );
 }
 
-export default function ManifestBanner({ manifest, expiresAt, onReset, onBurgerClick }: Props) {
+export default function ManifestBanner({ manifest, expiresAt, sourceFile, onReset, onBurgerClick }: Props) {
   const isMobile = useIsMobile();
   const badgeContentRef = useRef<HTMLDivElement>(null);
   const [shouldCollapse, setShouldCollapse] = useState(false);
@@ -59,6 +63,22 @@ export default function ManifestBanner({ manifest, expiresAt, onReset, onBurgerC
   const [modpackOpen, setModpackOpen] = useState(false);
   const [modpackLoading, setModpackLoading] = useState<'curseforge' | 'modrinth' | null>(null);
   const modpackRef = useRef<HTMLDivElement>(null);
+
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadToken, setUploadToken] = useState('');
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | undefined>();
+  const [uploadResult, setUploadResult] = useState<{ id: string; deleteUrl: string } | null>(null);
+  const [deleteUrlCopied, setDeleteUrlCopied] = useState(false);
+  const uploadRef = useRef<HTMLDivElement>(null);
+
+  function closeUploadDropdown() {
+    setUploadOpen(false);
+    setUploadToken('');
+    setUploadError(undefined);
+    setUploadResult(null);
+    setDeleteUrlCopied(false);
+  }
 
   useEffect(() => {
     if (!modpackOpen) return;
@@ -70,6 +90,65 @@ export default function ManifestBanner({ manifest, expiresAt, onReset, onBurgerC
     document.addEventListener('mousedown', handleOutside);
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [modpackOpen]);
+
+  useEffect(() => {
+    if (!uploadOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (uploadRef.current && !uploadRef.current.contains(e.target as Node)) {
+        closeUploadDropdown();
+      }
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploadOpen]);
+
+  async function triggerUpload() {
+    if (!sourceFile) return;
+    setUploadLoading(true);
+    setUploadError(undefined);
+    try {
+      const formData = new FormData();
+      formData.append('file', sourceFile);
+      const resp = await fetch(`${API_URL}/api/dump/upload`, {
+        method: 'POST',
+        headers: { ...(uploadToken ? { Authorization: `Bearer ${uploadToken}` } : {}) },
+        body: formData,
+      });
+      if (!resp.ok) {
+        if (resp.status === 401) {
+          setUploadError('Invalid auth token.');
+          return;
+        }
+        let message: string;
+        try {
+          const body = await resp.json();
+          message = body?.error ?? body?.message ?? `HTTP ${resp.status}: ${resp.statusText}`;
+        } catch {
+          message = `HTTP ${resp.status}: ${resp.statusText}`;
+        }
+        setUploadError(message);
+        return;
+      }
+      const { id, deleteKey } = (await resp.json()) as { id: string; deleteKey: string };
+      const deleteUrl = `${API_URL || window.location.origin}/api/delete/${deleteKey}`;
+      setUploadResult({ id, deleteUrl });
+    } catch {
+      setUploadError('Could not reach the backend. Check your network connection.');
+    } finally {
+      setUploadLoading(false);
+    }
+  }
+
+  async function copyDeleteUrl(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setDeleteUrlCopied(true);
+      setTimeout(() => setDeleteUrlCopied(false), 1500);
+    } catch {
+      /* clipboard API unavailable — user can still select the text manually */
+    }
+  }
 
   async function triggerModpackDownload(platform: 'curseforge' | 'modrinth') {
     setModpackOpen(false);
@@ -229,6 +308,79 @@ export default function ManifestBanner({ manifest, expiresAt, onReset, onBurgerC
 
       <div className="header-actions">
         <ThemeToggle />
+        {!isServerStored && sourceFile && BACKEND_AVAILABLE && (
+          <div ref={uploadRef} style={{ position: 'relative' }}>
+            <button
+              className={isMobile ? 'icon-btn' : 'upload-btn'}
+              onClick={() => (uploadOpen ? closeUploadDropdown() : setUploadOpen(true))}
+              disabled={uploadLoading}
+              title="Upload to server"
+            >
+              {uploadLoading ? <FaSpinner className="spin-icon" /> : <FaUpload />}
+              {!isMobile && (uploadLoading ? ' Uploading…' : ' Upload')}
+            </button>
+            {uploadOpen &&
+              (uploadResult ? (
+                <div className="modpack-dropdown upload-dropdown">
+                  <div className="upload-dropdown-content">
+                    <span className="upload-success-heading">
+                      <FaCheck /> Uploaded
+                    </span>
+                    <p className="upload-dropdown-hint">Save this delete link — it won't be shown again.</p>
+                    <div className="upload-delete-url-row">
+                      <input
+                        readOnly
+                        value={uploadResult.deleteUrl}
+                        onFocus={(e) => e.target.select()}
+                        className="upload-input upload-delete-url"
+                      />
+                      <button className="upload-btn" onClick={() => copyDeleteUrl(uploadResult.deleteUrl)}>
+                        {deleteUrlCopied ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                    <button
+                      className="upload-btn"
+                      style={{ width: '100%', justifyContent: 'center' }}
+                      onClick={() => {
+                        window.location.href = '/' + uploadResult.id;
+                      }}
+                    >
+                      Continue
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="modpack-dropdown upload-dropdown">
+                  <div className="upload-dropdown-content">
+                    <span style={{ fontSize: 11, color: 'var(--text)', opacity: 0.7 }}>Auth token</span>
+                    <input
+                      type="password"
+                      placeholder="Enter auth token"
+                      value={uploadToken}
+                      disabled={uploadLoading}
+                      onChange={(e) => {
+                        setUploadToken(e.target.value);
+                        setUploadError(undefined);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') triggerUpload();
+                      }}
+                      className="upload-input"
+                    />
+                    <button
+                      className="upload-btn"
+                      onClick={triggerUpload}
+                      disabled={uploadLoading}
+                      style={{ width: '100%', justifyContent: 'center' }}
+                    >
+                      {uploadLoading ? 'Uploading…' : 'Upload'}
+                    </button>
+                    {uploadError && <p style={{ color: 'var(--log-error)', fontSize: 12, margin: 0 }}>{uploadError}</p>}
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
         <div ref={modpackRef} style={{ position: 'relative' }}>
           <button
             className={isMobile ? 'icon-btn' : 'upload-btn'}
@@ -237,7 +389,7 @@ export default function ManifestBanner({ manifest, expiresAt, onReset, onBurgerC
             title={!isServerStored ? 'Only available for server-stored dumps' : 'Download modpack'}
             style={!isServerStored ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
           >
-            {modpackLoading ? '⏳' : '⬇'}
+            {modpackLoading ? <FaSpinner className="spin-icon" /> : <FaDownload />}
             {!isMobile && (modpackLoading ? ' Generating…' : ' Modpack')}
           </button>
           {modpackOpen && (

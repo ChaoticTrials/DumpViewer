@@ -42,9 +42,11 @@ You can also navigate directly to `/<id>` to view a dump that was previously upl
 
 When the server has `AUTH_TOKEN` set, an **Auth token** field appears in the URL input section. Enter the token before clicking **Open** to store the dump on the server.
 
+Once a dump is loaded locally (drag-and-drop or file picker), an **Upload** button also appears in the header. Click it, enter the auth token, and the dump is saved to the server — this uses the same `POST /api/dump/upload` endpoint as the CLI.
+
 The token is only required for write operations (upload, import, delete, list). Drag-and-drop and viewing already-stored dumps at `/<id>` are always public.
 
-Uploading or importing also returns a `deleteKey` — anyone with that key can delete just that dump without the auth token: opening `/api/delete/<deleteKey>` in a browser shows a confirmation page, and the actual deletion happens via `POST` to the same URL (see [API.md](API.md)).
+Uploading or importing also returns a `deleteKey` — anyone with that key can delete just that dump without the auth token: opening `/api/delete/<deleteKey>` in a browser shows a confirmation page, and the actual deletion happens via `POST` to the same URL (see [API.md](API.md)). The **Upload** button shows this as a ready-to-share delete link once the upload succeeds; it is shown only once, so copy it if you'll need it later.
 
 To push a dump to the server from the command line, use the API directly (see [API.md](API.md)).
 
