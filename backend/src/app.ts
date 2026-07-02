@@ -85,6 +85,10 @@ const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 // Rate limiter for POST endpoints: max 10 requests per 10s (avg 1/sec)
 const uploadLimiter = rateLimit({ windowMs: 10_000, limit: 10, standardHeaders: true, legacyHeaders: false });
 
+// Separate bucket for the auth-free delete-by-key routes so delete traffic
+// can't starve uploads (and vice versa)
+const deleteLimiter = rateLimit({ windowMs: 10_000, limit: 10, standardHeaders: true, legacyHeaders: false });
+
 // Ensure dumps directory exists
 fs.mkdirSync(DUMPS_DIR, { recursive: true });
 
@@ -769,21 +773,63 @@ app.get('/api/dump/:id/modpack', async (req, res) => {
   }
 });
 
-// GET /api/delete/:key — delete a dump using its delete key (no auth required)
-app.get('/api/delete/:key', (req, res) => {
-  const key = req.params['key'] as string;
-  const id = resolveDeleteKey(key);
+// Resolve a delete key to a dump id that exists on disk, or send the matching
+// error response and return null. Rejects non-base64url keys so the raw key is
+// safe to reflect into the confirmation page.
+function resolveDeletableId(key: string, res: express.Response): string | null {
+  const id = /^[A-Za-z0-9_-]+$/.test(key) ? resolveDeleteKey(key) : null;
   if (!id) {
     res.status(400).type('text/plain').send('Invalid delete key');
-    return;
+    return null;
   }
-  const filePath = path.join(DUMPS_DIR, `${id}.zip`);
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(path.join(DUMPS_DIR, `${id}.zip`))) {
     res.status(404).type('text/plain').send('Not found');
-    return;
+    return null;
   }
+  return id;
+}
+
+// GET /api/delete/:key — confirmation page; the actual deletion happens via
+// POST so link prefetchers/crawlers can't delete dumps (no auth required)
+app.get('/api/delete/:key', deleteLimiter, (req, res) => {
+  const key = req.params['key'] as string;
+  const id = resolveDeletableId(key, res);
+  if (!id) return;
+  res.type('html').send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Delete dump</title>
+  <style>
+    body { font-family: system-ui, sans-serif; display: flex; justify-content: center; padding-top: 15vh; background: #16181d; color: #e8eaed; }
+    main { text-align: center; }
+    code { background: #23262e; padding: 2px 6px; border-radius: 4px; }
+    button { margin-top: 20px; padding: 10px 24px; font-size: 15px; border: 0; border-radius: 6px; background: #dc3545; color: #fff; cursor: pointer; }
+    button:hover { background: #b02a37; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Delete this dump?</h1>
+    <p>Dump <code>${id}</code> will be permanently deleted.</p>
+    <form method="post">
+      <button type="submit">Delete dump</button>
+    </form>
+  </main>
+</body>
+</html>
+`);
+});
+
+// POST /api/delete/:key — delete a dump using its delete key (no auth required)
+app.post('/api/delete/:key', deleteLimiter, (req, res) => {
+  const key = req.params['key'] as string;
+  const id = resolveDeletableId(key, res);
+  if (!id) return;
   try {
-    fs.unlinkSync(filePath);
+    fs.unlinkSync(path.join(DUMPS_DIR, `${id}.zip`));
     try {
       fs.unlinkSync(path.join(DUMPS_DIR, `${id}.meta`));
     } catch {

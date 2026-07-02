@@ -500,9 +500,15 @@ describe('generateDeleteKey / resolveDeleteKey', () => {
 // GET /api/delete/:key
 // ============================================================
 
-describe('GET /api/delete/:key', () => {
+describe('GET /api/delete/:key (confirmation page)', () => {
   it('returns 400 for an invalid key', async () => {
     const res = await request(app).get('/api/delete/notavalidkey');
+    expect(res.status).toBe(400);
+    expect(res.text).toBe('Invalid delete key');
+  });
+
+  it('returns 400 for a key with non-base64url characters', async () => {
+    const res = await request(app).get('/api/delete/%3Cscript%3Ekey');
     expect(res.status).toBe(400);
     expect(res.text).toBe('Invalid delete key');
   });
@@ -515,7 +521,7 @@ describe('GET /api/delete/:key', () => {
     expect(res.text).toBe('Not found');
   });
 
-  it('deletes the dump and returns "Deleted"', async () => {
+  it('returns a confirmation page and does NOT delete the dump', async () => {
     const id = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
     const buf = buildValidSbbZip(id);
     const zipPath = path.join(TEST_DUMPS_DIR, `${id}.zip`);
@@ -523,6 +529,50 @@ describe('GET /api/delete/:key', () => {
 
     const key = generateDeleteKey(id);
     const res = await request(app).get(`/api/delete/${key}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.text).toContain('<form');
+    expect(res.text).toContain('method="post"');
+    expect(res.text).toContain(id);
+    expect(fs.existsSync(zipPath)).toBe(true);
+
+    fs.unlinkSync(zipPath);
+  });
+
+  it('is rate limited', async () => {
+    const res = await request(app).get('/api/delete/notavalidkey');
+    const hasRateLimitHeader = Object.keys(res.headers).some((h) => h.toLowerCase().includes('ratelimit'));
+    expect(hasRateLimitHeader).toBe(true);
+  });
+});
+
+// ============================================================
+// POST /api/delete/:key
+// ============================================================
+
+describe('POST /api/delete/:key', () => {
+  it('returns 400 for an invalid key', async () => {
+    const res = await request(app).post('/api/delete/notavalidkey');
+    expect(res.status).toBe(400);
+    expect(res.text).toBe('Invalid delete key');
+  });
+
+  it('returns 404 when the dump no longer exists', async () => {
+    const id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const key = generateDeleteKey(id);
+    const res = await request(app).post(`/api/delete/${key}`);
+    expect(res.status).toBe(404);
+    expect(res.text).toBe('Not found');
+  });
+
+  it('deletes the dump and returns "Deleted"', async () => {
+    const id = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const buf = buildValidSbbZip(id);
+    const zipPath = path.join(TEST_DUMPS_DIR, `${id}.zip`);
+    fs.writeFileSync(zipPath, buf);
+
+    const key = generateDeleteKey(id);
+    const res = await request(app).post(`/api/delete/${key}`);
     expect(res.status).toBe(200);
     expect(res.text).toBe('Deleted');
     expect(fs.existsSync(zipPath)).toBe(false);
@@ -537,7 +587,7 @@ describe('GET /api/delete/:key', () => {
     fs.writeFileSync(metaPath, JSON.stringify({ expiresAt: Date.now() + 1000 }));
 
     const key = generateDeleteKey(id);
-    const res = await request(app).get(`/api/delete/${key}`);
+    const res = await request(app).post(`/api/delete/${key}`);
     expect(res.status).toBe(200);
     expect(fs.existsSync(zipPath)).toBe(false);
     expect(fs.existsSync(metaPath)).toBe(false);
@@ -620,6 +670,22 @@ describe('Auth token protection', () => {
     const res = await request(tokenApp).get('/api/dumps');
     expect(res.status).toBe(401);
     expect(res.body).toHaveProperty('error');
+  });
+
+  it('GET /api/delete/:key stays auth-free (404 for a missing dump, not 401)', async () => {
+    const key = generateDeleteKey('12345678-1234-4123-8123-123456789012');
+    const res = await request(tokenApp).get(`/api/delete/${key}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /api/delete/:key deletes without a token', async () => {
+    const id = '12345678-1234-4123-8123-123456789abc';
+    const zipPath = path.join(TEST_DUMPS_DIR, `${id}.zip`);
+    fs.writeFileSync(zipPath, buildValidSbbZip(id));
+
+    const res = await request(tokenApp).post(`/api/delete/${generateDeleteKey(id)}`);
+    expect(res.status).toBe(200);
+    expect(fs.existsSync(zipPath)).toBe(false);
   });
 });
 

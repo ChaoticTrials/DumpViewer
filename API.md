@@ -43,7 +43,7 @@ Upload a dump zip from disk.
 { "id": "550e8400-e29b-41d4-a716-446655440000", "deleteKey": "<base64url-encoded key>" }
 ```
 
-The `id` is the `manifest_id` from `manifest.json` inside the zip (UUID v4). The `deleteKey` can be used with `GET /api/delete/:key` to delete the dump later without the server auth token.
+The `id` is the `manifest_id` from `manifest.json` inside the zip (UUID v4). The `deleteKey` can be used with `GET`/`POST /api/delete/:key` to delete the dump later without the server auth token.
 
 **curl example:**
 
@@ -155,13 +155,25 @@ curl -X DELETE http://localhost:3001/api/dump/550e8400-e29b-41d4-a716-4466554400
 
 ## `GET /api/delete/:key`
 
-Delete a stored dump using the delete key returned by the upload or import endpoint. **No auth token required** — the key itself is the credential.
+Show a confirmation page for deleting a stored dump using the delete key returned by the upload or import endpoint. **No auth token required** — the key itself is the credential. Rate limited.
 
 ```
 GET /api/delete/<deleteKey>
 ```
 
-The key encodes the dump id using the server's RSA private key. The server recovers the id from the key and deletes the dump. This endpoint is intentionally a GET so it can be opened directly in a browser.
+The key encodes the dump id using the server's RSA private key. The server recovers the id from the key and, if the dump exists, returns an HTML page with a delete button. The actual deletion happens via `POST /api/delete/:key` (the page's form submits to the same URL), so opening the link — or a link prefetcher following it — never deletes anything by itself.
+
+**Response `200`:** HTML confirmation page
+
+**Response `400`:** `Invalid delete key` — key could not be decoded or did not contain a valid id
+
+**Response `404`:** `Not found` — key is valid but the dump no longer exists (already deleted or expired)
+
+---
+
+## `POST /api/delete/:key`
+
+Delete a stored dump using its delete key. **No auth token required** — the key itself is the credential. Rate limited.
 
 **Response `200`:** `Deleted` (plain text)
 
@@ -172,7 +184,7 @@ The key encodes the dump id using the server's RSA private key. The server recov
 **curl example:**
 
 ```bash
-curl http://localhost:3001/api/delete/<deleteKey>
+curl -X POST http://localhost:3001/api/delete/<deleteKey>
 ```
 
 ---
