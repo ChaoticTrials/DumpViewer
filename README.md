@@ -50,6 +50,12 @@ Uploading or importing also returns a `deleteKey` — anyone with that key can d
 
 To push a dump to the server from the command line, use the API directly (see [API.md](API.md)).
 
+### Admin panel
+
+Navigate to `/admin` to manage all dumps stored on the server. The panel asks for the auth token and keeps it in `sessionStorage` — it survives reloads in the same tab, but a new tab or a closed-and-reopened browser asks again.
+
+The panel lists every stored dump — manifest format, manifest ID, Minecraft version, Skyblock Builder version, creation date, and expiry — sorted so the dumps expiring soonest come first. Each row has a **View** button (opens the dump at `/<id>` in a new tab) and a **Delete** button (asks for a confirming second click before deleting).
+
 ---
 
 ## Docker

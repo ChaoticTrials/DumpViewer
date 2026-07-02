@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { FaHouse } from 'react-icons/fa6';
 import './App.css';
 import type { ParsedDump, SelectedFile } from './manifest/index';
 import { parseDump, categorizeFiles } from './manifest/index';
@@ -9,10 +10,11 @@ import FileViewer from './components/FileViewer';
 import ThemeToggle from './components/ThemeToggle';
 import { HeaderLogo } from './components/HeaderLogo.tsx';
 import NoDumpPage from './components/NoDumpPage';
+import AdminPanel from './components/AdminPanel';
 
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-function SimpleHeader() {
+function SimpleHeader({ showHomeLink = false }: { showHomeLink?: boolean }) {
   return (
     <header className="header">
       <div className="header-brand">
@@ -20,6 +22,16 @@ function SimpleHeader() {
         <span className="header-title">Dump Viewer</span>
       </div>
       <div className="header-actions" style={{ gridColumn: 3 }}>
+        {showHomeLink && (
+          <a
+            className="upload-btn upload-btn--close"
+            href="/"
+            title="Back to home"
+            style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text)', borderColor: 'var(--border)', textDecoration: 'none' }}
+          >
+            <FaHouse size={12} /> Home
+          </a>
+        )}
         <ThemeToggle />
       </div>
     </header>
@@ -58,6 +70,9 @@ export default function App() {
   useEffect(() => {
     const raw = window.location.pathname.replace(/^\//, '');
     if (!raw) return;
+
+    // Admin panel route — handled in render, no dump to fetch
+    if (raw === 'admin') return;
 
     // Not a UUID v4 → redirect to home
     if (!UUID_V4_RE.test(raw)) {
@@ -99,6 +114,15 @@ export default function App() {
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  if (window.location.pathname === '/admin') {
+    return (
+      <div className="app">
+        <SimpleHeader showHomeLink />
+        <AdminPanel />
+      </div>
+    );
+  }
 
   if (notFound && manifestId) {
     return (

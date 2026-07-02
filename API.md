@@ -205,11 +205,19 @@ List all stored dumps, sorted newest first.
       "id": "550e8400-e29b-41d4-a716-446655440000",
       "size": 4096,
       "createdAt": "2025-01-01T00:00:00.000Z",
-      "expiresAt": "2026-01-01T00:00:00.000Z"
+      "expiresAt": "2026-01-01T00:00:00.000Z",
+      "manifestVersion": 2,
+      "versions": {
+        "skyblockbuilder": "2.0",
+        "minecraft": "1.21.1",
+        "neoforge": "21.1.80"
+      }
     }
   ]
 }
 ```
+
+`manifestVersion` is the dump's manifest format version and `versions` is the full `versions` object from the manifest (all mod versions, stored verbatim). Both are `null` if the zip or its manifest is unreadable. The fields are recorded in the `.meta` sidecar at upload time; for dumps stored before this field existed they are extracted from the zip and backfilled into the sidecar on the first listing.
 
 **curl example:**
 

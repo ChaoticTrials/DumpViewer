@@ -364,28 +364,61 @@ function writeFileAtomic(dest: string, buffer: Buffer): void {
   }
 }
 
-// Helper: extract the `hashes` field from a manifest (present in v2 dumps)
-function extractManifestHashes(buffer: Buffer): Record<string, unknown> | undefined {
+// Manifest info stored in the sidecar .meta file. `manifestVersion: null`
+// means the zip was inspected but unreadable (don't retry); a missing
+// `manifestVersion` key in an on-disk meta means "not yet inspected".
+interface ManifestInfo {
+  hashes?: Record<string, unknown>;
+  manifestVersion: number | null;
+  versions: Record<string, string> | null;
+}
+
+// Helper: extract manifest info (format version, all mod versions, v2 hashes)
+// from a dump zip buffer. Returns null fields if the zip or manifest is unreadable.
+export function extractManifestInfo(buffer: Buffer): ManifestInfo {
   try {
     const zip = new AdmZip(buffer);
     const manifestEntry = zip.getEntry('manifest.json');
-    if (!manifestEntry || manifestEntry.header.size > MAX_MANIFEST_ENTRY_BYTES) return undefined;
+    if (!manifestEntry || manifestEntry.header.size > MAX_MANIFEST_ENTRY_BYTES) {
+      return { manifestVersion: null, versions: null };
+    }
     const manifest = JSON.parse(manifestEntry.getData().toString('utf-8')) as Record<string, unknown>;
+
+    const info: ManifestInfo = {
+      manifestVersion: typeof manifest['manifest_version'] === 'number' ? manifest['manifest_version'] : null,
+      versions: null,
+    };
+
+    const v = manifest['versions'];
+    if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+      const versions: Record<string, string> = {};
+      for (const [key, value] of Object.entries(v)) {
+        if (typeof value === 'string') versions[key] = value;
+      }
+      info.versions = versions;
+    }
+
     const h = manifest['hashes'];
     if (typeof h === 'object' && h !== null && !Array.isArray(h)) {
-      return h as Record<string, unknown>;
+      info.hashes = h as Record<string, unknown>;
     }
+
+    return info;
   } catch {
-    /* ignore */
+    return { manifestVersion: null, versions: null };
   }
-  return undefined;
 }
 
-// Helper: write a sidecar .meta file recording expiry and optional hashes
-function writeMeta(zipDest: string, ttlMs: number, hashes?: Record<string, unknown>): void {
+// Helper: write a sidecar .meta file recording expiry, creation time and manifest info
+function writeMeta(zipDest: string, ttlMs: number, info?: ManifestInfo): void {
   const metaDest = zipDest.replace(/\.zip$/, '.meta');
-  const meta: Record<string, unknown> = { expiresAt: Date.now() + ttlMs };
-  if (hashes) meta['hashes'] = hashes;
+  const now = Date.now();
+  const meta: Record<string, unknown> = { expiresAt: now + ttlMs, createdAt: now };
+  if (info) {
+    if (info.hashes) meta['hashes'] = info.hashes;
+    meta['manifestVersion'] = info.manifestVersion;
+    meta['versions'] = info.versions;
+  }
   fs.writeFileSync(metaDest, JSON.stringify(meta));
 }
 
@@ -486,7 +519,7 @@ app.post('/api/dump/import', uploadLimiter, requireUploadToken, async (req, res)
   const dest = path.join(DUMPS_DIR, `${id}.zip`);
   try {
     writeFileAtomic(dest, buffer);
-    writeMeta(dest, parseTtlMs(ttl), extractManifestHashes(buffer));
+    writeMeta(dest, parseTtlMs(ttl), extractManifestInfo(buffer));
   } catch {
     res.status(500).json({ error: 'Failed to save dump' });
     return;
@@ -516,7 +549,7 @@ app.post('/api/dump/upload', uploadLimiter, requireUploadToken, upload.single('f
   const dest = path.join(DUMPS_DIR, `${id}.zip`);
   try {
     writeFileAtomic(dest, buffer);
-    writeMeta(dest, parseTtlMs(ttl), extractManifestHashes(buffer));
+    writeMeta(dest, parseTtlMs(ttl), extractManifestInfo(buffer));
   } catch {
     res.status(500).json({ error: 'Failed to save dump' });
     return;
@@ -639,21 +672,43 @@ app.get('/api/dumps', requireUploadToken, (_req, res) => {
     .map((file) => {
       const id = file.slice(0, -4); // strip .zip
       try {
-        const stat = fs.statSync(path.join(DUMPS_DIR, file));
+        const zipPath = path.join(DUMPS_DIR, file);
+        const stat = fs.statSync(zipPath);
         const metaPath = path.join(DUMPS_DIR, `${id}.meta`);
-        let expiresAt: number;
+        let meta: Record<string, unknown> = {};
         if (fs.existsSync(metaPath)) {
-          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { expiresAt: number };
-          expiresAt = meta.expiresAt;
-        } else {
-          expiresAt = stat.mtimeMs + ONE_YEAR_MS;
+          meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
         }
-        return { id, size: stat.size, createdAt: stat.mtime.toISOString(), expiresAt: new Date(expiresAt).toISOString() };
+        if (typeof meta['expiresAt'] !== 'number') meta['expiresAt'] = stat.mtimeMs + ONE_YEAR_MS;
+        if (typeof meta['createdAt'] !== 'number') meta['createdAt'] = stat.mtimeMs;
+
+        // Backfill manifest info for dumps stored before it was recorded at
+        // upload time. A persisted `manifestVersion: null` marks an unreadable
+        // zip so it isn't re-parsed on every listing.
+        if (!('manifestVersion' in meta)) {
+          const info = extractManifestInfo(fs.readFileSync(zipPath));
+          meta['manifestVersion'] = info.manifestVersion;
+          meta['versions'] = info.versions;
+          try {
+            fs.writeFileSync(metaPath, JSON.stringify(meta));
+          } catch {
+            /* persisting the backfill is best-effort */
+          }
+        }
+
+        return {
+          id,
+          size: stat.size,
+          createdAt: new Date(meta['createdAt'] as number).toISOString(),
+          expiresAt: new Date(meta['expiresAt'] as number).toISOString(),
+          manifestVersion: (meta['manifestVersion'] as number | null) ?? null,
+          versions: (meta['versions'] as Record<string, string> | null) ?? null,
+        };
       } catch {
         return null;
       }
     })
-    .filter((d): d is { id: string; size: number; createdAt: string; expiresAt: string } => d !== null)
+    .filter((d): d is NonNullable<typeof d> => d !== null)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   res.json({ dumps });

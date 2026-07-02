@@ -26,6 +26,7 @@ import {
   safeLookup,
   isValidId,
   validateAndExtractManifestId,
+  extractManifestInfo,
   cleanupOldDumps,
   parseTtlMs,
   generateDeleteKey,
@@ -44,7 +45,7 @@ afterAll(() => {
 });
 
 // --- Helper: build a valid SBB zip buffer ---
-function buildValidSbbZip(manifestId: string): Buffer {
+function buildValidSbbZip(manifestId: string, extraVersions: Record<string, string> = {}): Buffer {
   const zip = new AdmZip();
   const manifest = {
     manifest_version: 1,
@@ -53,6 +54,7 @@ function buildValidSbbZip(manifestId: string): Buffer {
     versions: {
       skyblockbuilder: '1.0',
       minecraft: '1.20.1',
+      ...extraVersions,
     },
     files: [],
   };
@@ -339,6 +341,47 @@ describe('validateAndExtractManifestId()', () => {
   });
 });
 
+describe('extractManifestInfo()', () => {
+  it('extracts manifest version and all mod versions from a v1 zip', () => {
+    const buf = buildValidSbbZip('550e8400-e29b-41d4-a716-446655440000', { forge: '47.1.0', libx: '1.20.1-5.0.12' });
+    const info = extractManifestInfo(buf);
+    expect(info.manifestVersion).toBe(1);
+    expect(info.versions).toEqual({
+      skyblockbuilder: '1.0',
+      minecraft: '1.20.1',
+      forge: '47.1.0',
+      libx: '1.20.1-5.0.12',
+    });
+    expect(info.hashes).toBeUndefined();
+  });
+
+  it('extracts hashes alongside versions from a v2 zip', () => {
+    const buf = buildValidSbbZipV2('550e8400-e29b-41d4-a716-446655440001');
+    const info = extractManifestInfo(buf);
+    expect(info.manifestVersion).toBe(2);
+    expect(info.versions).toEqual({ skyblockbuilder: '2.0', minecraft: '1.21.1' });
+    expect(info.hashes).toEqual({ somemod: { md5: 'abc123', sha1: 'def456', sha512: 'ghi789' } });
+  });
+
+  it('ignores non-string values in versions', () => {
+    const zip = new AdmZip();
+    const manifest = {
+      manifest_version: 1,
+      versions: { skyblockbuilder: '1.0', minecraft: '1.20.1', weird: 42 },
+    };
+    zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest), 'utf-8'));
+    expect(extractManifestInfo(zip.toBuffer()).versions).toEqual({ skyblockbuilder: '1.0', minecraft: '1.20.1' });
+  });
+
+  it('returns null fields for a buffer that is not a zip', () => {
+    expect(extractManifestInfo(Buffer.from('not a zip'))).toEqual({ manifestVersion: null, versions: null });
+  });
+
+  it('returns null fields for a zip without manifest.json', () => {
+    expect(extractManifestInfo(buildZipNoManifest())).toEqual({ manifestVersion: null, versions: null });
+  });
+});
+
 // ============================================================
 // GET /api/dump/:id
 // ============================================================
@@ -402,6 +445,13 @@ describe('POST /api/dump/upload', () => {
     // Verify the file was written to disk
     const stored = path.join(TEST_DUMPS_DIR, `${manifestId}.zip`);
     expect(fs.existsSync(stored)).toBe(true);
+
+    // Verify the meta sidecar records the manifest info at upload time
+    const meta = JSON.parse(fs.readFileSync(path.join(TEST_DUMPS_DIR, `${manifestId}.meta`), 'utf-8')) as Record<string, unknown>;
+    expect(meta['manifestVersion']).toBe(1);
+    expect(meta['versions']).toEqual({ skyblockbuilder: '1.0', minecraft: '1.20.1' });
+    expect(typeof meta['createdAt']).toBe('number');
+    expect(typeof meta['expiresAt']).toBe('number');
   });
 });
 
@@ -829,6 +879,103 @@ describe('GET /api/dumps', () => {
     const idx1 = ids.indexOf(id1);
     const idx2 = ids.indexOf(id2);
     expect(idx2).toBeLessThan(idx1); // newer (id2) should appear before older (id1)
+  });
+
+  type DumpEntry = {
+    id: string;
+    size: number;
+    createdAt: string;
+    expiresAt: string;
+    manifestVersion: number | null;
+    versions: Record<string, string> | null;
+  };
+
+  function findDump(res: request.Response, id: string): DumpEntry {
+    const entry = (res.body.dumps as DumpEntry[]).find((d) => d.id === id);
+    expect(entry).toBeDefined();
+    return entry as DumpEntry;
+  }
+
+  it('returns manifestVersion, versions and createdAt from an enriched meta sidecar', async () => {
+    const id = 'aaaa1111-0000-4000-8000-000000000001';
+    const createdAt = Date.parse('2025-05-01T00:00:00.000Z');
+    const expiresAt = createdAt + 1000 * 60 * 60 * 24 * 30;
+    const versions = { skyblockbuilder: '1.0', minecraft: '1.20.1', forge: '47.1.0', libx: '1.20.1-5.0.12' };
+    fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.zip`), buildValidSbbZip(id, { forge: '47.1.0', libx: '1.20.1-5.0.12' }));
+    fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.meta`), JSON.stringify({ expiresAt, createdAt, manifestVersion: 1, versions }));
+
+    const res = await request(app).get('/api/dumps');
+    expect(res.status).toBe(200);
+    const dump = findDump(res, id);
+    expect(dump.manifestVersion).toBe(1);
+    expect(dump.versions).toEqual(versions);
+    expect(dump.createdAt).toBe(new Date(createdAt).toISOString());
+    expect(dump.expiresAt).toBe(new Date(expiresAt).toISOString());
+  });
+
+  it('backfills a legacy meta (expiresAt/hashes only) without changing those fields', async () => {
+    const id = 'aaaa1111-0000-4000-8000-000000000003';
+    const zipPath = path.join(TEST_DUMPS_DIR, `${id}.zip`);
+    const metaPath = path.join(TEST_DUMPS_DIR, `${id}.meta`);
+    const expiresAt = Date.now() + 12345678;
+    const hashes = { legacymod: { md5: 'm', sha1: 's1', sha512: 's512' } };
+    fs.writeFileSync(zipPath, buildValidSbbZip(id, { neoforge: '21.1.80' }));
+    fs.writeFileSync(metaPath, JSON.stringify({ expiresAt, hashes }));
+
+    const res = await request(app).get('/api/dumps');
+    const dump = findDump(res, id);
+    expect(dump.manifestVersion).toBe(1);
+    expect(dump.versions).toEqual({ skyblockbuilder: '1.0', minecraft: '1.20.1', neoforge: '21.1.80' });
+    expect(dump.expiresAt).toBe(new Date(expiresAt).toISOString());
+
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
+    expect(meta['expiresAt']).toBe(expiresAt);
+    expect(meta['hashes']).toEqual(hashes);
+    expect(meta['manifestVersion']).toBe(1);
+    expect(meta['versions']).toEqual(dump.versions);
+    expect(typeof meta['createdAt']).toBe('number');
+  });
+
+  it('creates a meta with a stable mtime-derived expiry for a zip without one', async () => {
+    const id = 'aaaa1111-0000-4000-8000-000000000004';
+    const zipPath = path.join(TEST_DUMPS_DIR, `${id}.zip`);
+    const metaPath = path.join(TEST_DUMPS_DIR, `${id}.meta`);
+    fs.writeFileSync(zipPath, buildValidSbbZip(id));
+    const mtime = new Date('2025-03-01T00:00:00.000Z');
+    fs.utimesSync(zipPath, mtime, mtime);
+
+    const res = await request(app).get('/api/dumps');
+    const dump = findDump(res, id);
+    expect(dump.manifestVersion).toBe(1);
+    expect(dump.createdAt).toBe(mtime.toISOString());
+    expect(dump.expiresAt).toBe(new Date(mtime.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString());
+
+    expect(fs.existsSync(metaPath)).toBe(true);
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
+    expect(meta['expiresAt']).toBe(mtime.getTime() + 365 * 24 * 60 * 60 * 1000);
+
+    // A second call returns the same expiry (persisted, not recomputed)
+    const res2 = await request(app).get('/api/dumps');
+    expect(findDump(res2, id).expiresAt).toBe(dump.expiresAt);
+  });
+
+  it('marks an unreadable zip with null fields and suppresses re-parsing', async () => {
+    const id = 'aaaa1111-0000-4000-8000-000000000005';
+    const zipPath = path.join(TEST_DUMPS_DIR, `${id}.zip`);
+    const metaPath = path.join(TEST_DUMPS_DIR, `${id}.meta`);
+    const expiresAt = Date.now() + 9999999;
+    fs.writeFileSync(zipPath, Buffer.from('this is not a zip file'));
+    fs.writeFileSync(metaPath, JSON.stringify({ expiresAt }));
+
+    const res = await request(app).get('/api/dumps');
+    expect(res.status).toBe(200);
+    const dump = findDump(res, id);
+    expect(dump.manifestVersion).toBeNull();
+    expect(dump.versions).toBeNull();
+
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
+    expect(meta).toHaveProperty('manifestVersion', null);
+    expect(meta['expiresAt']).toBe(expiresAt);
   });
 });
 

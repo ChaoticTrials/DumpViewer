@@ -60,11 +60,11 @@ The frontend can parse and display dumps entirely locally — no upload required
 ### Backend (`backend/src/`)
 
 - **`index.ts`** — Entry point. Runs `cleanupOldDumps()` on startup and every 24 hours, then starts the HTTP server.
-- **`app.ts`** — The entire Express application. Exports `app`, plus utility functions used directly by tests (`isSafeUrl`, `isValidId`, `validateAndExtractManifestId`, `parseTtlMs`, `cleanupOldDumps`, `generateDeleteKey`, `resolveDeleteKey`).
+- **`app.ts`** — The entire Express application. Exports `app`, plus utility functions used directly by tests (`isSafeUrl`, `isValidId`, `validateAndExtractManifestId`, `extractManifestInfo`, `parseTtlMs`, `cleanupOldDumps`, `generateDeleteKey`, `resolveDeleteKey`).
 - **`platform-api.ts`** — HTTP clients for CurseForge (`curse.moddingx.org`) and Modrinth (`api.modrinth.com`) used for modpack export.
 - **`platform-ids.json`** — Static map of mod keys → `{ curseforge, modrinth }` IDs used for modpack generation.
 
-**Storage** is file-based, no database. Each dump is stored as `{DUMPS_DIR}/{uuid}.zip` with a sidecar `{uuid}.meta` (JSON with `expiresAt` timestamp and optional `hashes`).
+**Storage** is file-based, no database. Each dump is stored as `{DUMPS_DIR}/{uuid}.zip` with a sidecar `{uuid}.meta` (JSON with `expiresAt`/`createdAt` timestamps, `manifestVersion`, the full manifest `versions` object, and optional `hashes`). `GET /api/dumps` backfills `manifestVersion`/`versions` into legacy sidecars on first listing; a persisted `manifestVersion: null` marks an unreadable zip (not retried), while a missing key means "not yet inspected".
 
 **Delete keys** are RSA-2048 tokens: `privateEncrypt(id)` → base64url. The key pair is generated on first startup and persisted in `{DUMPS_DIR}/keys/`. `GET /api/delete/:key` shows an HTML confirmation page (never deletes — safe against link prefetchers); `POST /api/delete/:key` performs the deletion. Both recover the ID by decrypting with the public key — no token storage needed — and share a dedicated rate-limit bucket.
 
@@ -73,6 +73,8 @@ The frontend can parse and display dumps entirely locally — no upload required
 **SSRF protection** for URL imports is two-layered: `isSafeUrl()` string checks, plus `safeLookup()` — a validating DNS lookup wired into an undici `Agent` so every connection (including redirect hops) rejects hostnames resolving to private/loopback/link-local addresses (DNS rebinding). Import fetches therefore go through `undici`'s `fetch`, not the global one; `app.test.ts` mocks `undici.fetch` by delegating to `globalThis.fetch` so `vi.stubGlobal('fetch', ...)` still intercepts imports.
 
 **Zip handling**: always check `entry.header.size` (declared uncompressed size) against a limit before calling `getData()` on untrusted zips — decompression-bomb protection (`MAX_MANIFEST_ENTRY_BYTES`, `MAX_OVERRIDE_ENTRY_BYTES`).
+
+**Test rate-limit budget**: the upload rate limiter (10 POSTs / 10 s) is shared across the whole `app.test.ts` run and is fully consumed by the existing suite — a net-new `POST /api/dump/*` request to `app` makes the _last_ POSTs in the run fail with 429. Seed dumps by writing `{id}.zip`/`{id}.meta` directly to disk, piggyback assertions onto existing successful uploads, or unit-test exported helpers instead.
 
 ### Frontend (`frontend/src/`)
 
