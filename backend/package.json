@@ -10,13 +10,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16",
+    "adm-zip": "^0.6.0",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.5.2",
+    "express-rate-limit": "^8.6.1",
     "multer": "2.2.0",
-    "undici": "^8.5.0"
+    "undici": "^8.9.0"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",
@@ -26,8 +26,8 @@
     "@types/node": "^26.1.0",
     "@types/supertest": "^7.2.0",
     "supertest": "^7.0.0",
-    "tsx": "^4.22.4",
-    "typescript": "~6.0.3",
+    "tsx": "^4.23.1",
+    "typescript": "~7.0.2",
     "vitest": "^4.1.0"
   }
 }
