@@ -1364,3 +1364,134 @@
   opacity: 0.6;
   cursor: wait;
 }
+
+/* Inline name/link editing */
+
+.admin-cell-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: -2px -6px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: text;
+}
+
+.admin-cell-edit:hover {
+  background: var(--surface-hover);
+}
+
+.admin-cell-edit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.admin-cell-edit--icon {
+  cursor: pointer;
+}
+
+.admin-cell-name {
+  max-width: 220px;
+}
+
+.admin-cell-name .admin-cell-edit > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-name-fallback {
+  font-family: var(--mono);
+  font-size: 12px;
+  opacity: 0.45;
+}
+
+.admin-cell-link {
+  max-width: 220px;
+}
+
+.admin-cell-link a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.admin-cell-link a:hover {
+  text-decoration: underline;
+}
+
+.admin-edit-icon {
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.admin-table tbody tr:hover .admin-edit-icon,
+.admin-cell-edit:focus-visible .admin-edit-icon {
+  opacity: 0.55;
+}
+
+/* Only applies while an editor is open, so the resting table width is untouched */
+.admin-cell-editor {
+  min-width: 200px;
+}
+
+.admin-cell-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.admin-cell-input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.admin-cell-input:focus {
+  border-color: var(--accent-border);
+}
+
+.admin-cell-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.admin-cell-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-h);
+}
+
+.admin-cell-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.admin-cell-error {
+  margin-top: 4px;
+  color: var(--log-error);
+  font-size: 11px;
+  /* Overrides the inherited `td { white-space: nowrap }` so a long message wraps */
+  white-space: normal;
+}

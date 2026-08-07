@@ -85,6 +85,15 @@ const MAX_OVERRIDE_ENTRY_BYTES = 64 * 1024 * 1024; // 64 MB per modpack override
 // UUID v4 regex (Java lowercase output: 550e8400-e29b-41d4-a716-446655440000)
 const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
+// Optional display metadata stored alongside a dump
+const MAX_DUMP_NAME_CHARS = 256;
+const MAX_DUMP_LINK_CHARS = 2048;
+
+// C0/C1 control characters (newlines would break the single-line table cell)
+// plus bidi-override and zero-width characters (cheap anti-spoofing for a
+// label rendered next to a UUID).
+const FORBIDDEN_NAME_CHARS = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
+
 // Helper: read a positive integer from the environment, with a default
 function envInt(name: string, fallback: number): number {
   const parsed = parseInt(process.env[name] ?? '', 10);
@@ -138,7 +147,9 @@ export const app = express();
 // Open CORS — expose X-Expires-At for browser fetch
 app.use(cors({ origin: ALLOWED_ORIGIN, exposedHeaders: ['X-Expires-At'] }));
 
-app.use(express.json({ limit: '4kb' }));
+// 8 kb: a 2048-char link plus a 2048-char import url plus a 256-char name can
+// cross 4 kb and would otherwise fail with a confusing 413.
+app.use(express.json({ limit: '8kb' }));
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -341,6 +352,53 @@ export function parseTtlMs(raw: unknown): number {
   return Math.min(secs, ONE_YEAR_SECS) * 1000;
 }
 
+export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string };
+
+// Helper: parse the optional display `name` for a dump. Trims, maps empty to
+// null, caps the length and rejects characters that would break or spoof the
+// single-line label rendered next to the dump id.
+export function parseDumpName(raw: unknown): ParseResult<string | null> {
+  if (raw === null || raw === undefined) return { ok: true, value: null };
+  if (typeof raw !== 'string') return { ok: false, error: 'name must be a string' };
+
+  const trimmed = raw.trim();
+  if (trimmed === '') return { ok: true, value: null };
+  if (trimmed.length > MAX_DUMP_NAME_CHARS) {
+    return { ok: false, error: `name must be at most ${MAX_DUMP_NAME_CHARS} characters` };
+  }
+  if (FORBIDDEN_NAME_CHARS.test(trimmed)) {
+    return { ok: false, error: 'name must not contain control or invisible characters' };
+  }
+  return { ok: true, value: trimmed };
+}
+
+// Helper: parse the optional `link` for a dump. Deliberately *not* isSafeUrl():
+// that is an SSRF guard for URLs the server fetches, and it also rejects
+// localhost / RFC 1918 — wrong here, because this link is never fetched, only
+// rendered as an <a> in the auth-gated admin panel. The real risk is scheme
+// injection (javascript:, data:), which the http/https check covers.
+export function parseDumpLink(raw: unknown): ParseResult<string | null> {
+  if (raw === null || raw === undefined) return { ok: true, value: null };
+  if (typeof raw !== 'string') return { ok: false, error: 'link must be a string' };
+
+  const trimmed = raw.trim();
+  if (trimmed === '') return { ok: true, value: null };
+  if (trimmed.length > MAX_DUMP_LINK_CHARS) {
+    return { ok: false, error: `link must be at most ${MAX_DUMP_LINK_CHARS} characters` };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { ok: false, error: 'link must be a valid URL' };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { ok: false, error: 'link must use http or https' };
+  }
+  return { ok: true, value: trimmed };
+}
+
 // Helper: delete expired dump files; returns count of deleted files.
 // Expiry is read from the sidecar <id>.meta file written at upload time.
 // Files with no sidecar fall back to mtime + 1 year.
@@ -447,8 +505,21 @@ export function extractManifestInfo(buffer: Buffer): ManifestInfo {
   }
 }
 
+// Helper: persist a sidecar .meta atomically. A torn write is not harmless —
+// cleanupOldDumps() treats an unparseable sidecar as expiresAt=0 and deletes
+// the dump on its next pass.
+function writeMetaFile(metaPath: string, meta: Record<string, unknown>): void {
+  writeFileAtomic(metaPath, Buffer.from(JSON.stringify(meta), 'utf-8'));
+}
+
+// Optional display metadata supplied at upload/import time
+interface DumpMetadata {
+  name: string | null;
+  link: string | null;
+}
+
 // Helper: write a sidecar .meta file recording expiry, creation time and manifest info
-function writeMeta(zipDest: string, ttlMs: number, info?: ManifestInfo): void {
+function writeMeta(zipDest: string, ttlMs: number, info?: ManifestInfo, metadata?: DumpMetadata): void {
   const metaDest = zipDest.replace(/\.zip$/, '.meta');
   const now = Date.now();
   const meta: Record<string, unknown> = { expiresAt: now + ttlMs, createdAt: now };
@@ -457,7 +528,10 @@ function writeMeta(zipDest: string, ttlMs: number, info?: ManifestInfo): void {
     meta['manifestVersion'] = info.manifestVersion;
     meta['versions'] = info.versions;
   }
-  fs.writeFileSync(metaDest, JSON.stringify(meta));
+  // Absent == null, so only non-null values get a key
+  if (metadata?.name) meta['name'] = metadata.name;
+  if (metadata?.link) meta['link'] = metadata.link;
+  writeMetaFile(metaDest, meta);
 }
 
 // Middleware: require auth token if configured
@@ -491,7 +565,7 @@ function requireUploadToken(req: express.Request, res: express.Response, next: e
 
 // POST /api/dump/import
 app.post('/api/dump/import', uploadLimiter, authFailureLimiter, requireUploadToken, async (req, res) => {
-  const { url, ttl } = req.body as { url?: unknown; ttl?: unknown };
+  const { url, ttl, name, link } = req.body as { url?: unknown; ttl?: unknown; name?: unknown; link?: unknown };
   if (typeof url !== 'string' || !url) {
     res.status(400).json({ error: 'Missing or invalid url' });
     return;
@@ -499,6 +573,19 @@ app.post('/api/dump/import', uploadLimiter, authFailureLimiter, requireUploadTok
 
   if (!isSafeUrl(url)) {
     res.status(400).json({ error: 'URL is not allowed' });
+    return;
+  }
+
+  // Validate the optional metadata before the fetch so a bad value fails fast
+  // instead of after a 30 s download
+  const parsedName = parseDumpName(name);
+  if (!parsedName.ok) {
+    res.status(400).json({ error: parsedName.error });
+    return;
+  }
+  const parsedLink = parseDumpLink(link);
+  if (!parsedLink.ok) {
+    res.status(400).json({ error: parsedLink.error });
     return;
   }
 
@@ -558,7 +645,7 @@ app.post('/api/dump/import', uploadLimiter, authFailureLimiter, requireUploadTok
   const dest = path.join(DUMPS_DIR, `${id}.zip`);
   try {
     writeFileAtomic(dest, buffer);
-    writeMeta(dest, parseTtlMs(ttl), extractManifestInfo(buffer));
+    writeMeta(dest, parseTtlMs(ttl), extractManifestInfo(buffer), { name: parsedName.value, link: parsedLink.value });
   } catch {
     res.status(500).json({ error: 'Failed to save dump' });
     return;
@@ -575,7 +662,20 @@ app.post('/api/dump/upload', uploadLimiter, authFailureLimiter, requireUploadTok
   }
 
   const buffer = req.file.buffer;
-  const ttl = (req.body as Record<string, unknown>)?.['ttl'];
+  const fields = (req.body ?? {}) as Record<string, unknown>;
+  const ttl = fields['ttl'];
+
+  // Validate the optional metadata before touching the disk
+  const parsedName = parseDumpName(fields['name']);
+  if (!parsedName.ok) {
+    res.status(400).json({ error: parsedName.error });
+    return;
+  }
+  const parsedLink = parseDumpLink(fields['link']);
+  if (!parsedLink.ok) {
+    res.status(400).json({ error: parsedLink.error });
+    return;
+  }
 
   let id: string;
   try {
@@ -588,7 +688,7 @@ app.post('/api/dump/upload', uploadLimiter, authFailureLimiter, requireUploadTok
   const dest = path.join(DUMPS_DIR, `${id}.zip`);
   try {
     writeFileAtomic(dest, buffer);
-    writeMeta(dest, parseTtlMs(ttl), extractManifestInfo(buffer));
+    writeMeta(dest, parseTtlMs(ttl), extractManifestInfo(buffer), { name: parsedName.value, link: parsedLink.value });
   } catch {
     res.status(500).json({ error: 'Failed to save dump' });
     return;
@@ -697,6 +797,103 @@ app.delete('/api/dump/:id', generalLimiter, authFailureLimiter, requireUploadTok
   res.status(204).send();
 });
 
+// PATCH /api/dump/:id — update the optional display metadata (name, link).
+// Deliberately on the general bucket, not the precious upload bucket.
+app.patch('/api/dump/:id', generalLimiter, authFailureLimiter, requireUploadToken, (req, res) => {
+  const id = req.params['id'] as string;
+
+  if (!isValidId(id)) {
+    res.status(400).json({ error: 'Invalid dump id' });
+    return;
+  }
+
+  const zipPath = path.join(DUMPS_DIR, `${id}.zip`);
+  if (!fs.existsSync(zipPath)) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const hasName = Object.prototype.hasOwnProperty.call(body, 'name');
+  const hasLink = Object.prototype.hasOwnProperty.call(body, 'link');
+  if (!hasName && !hasLink) {
+    res.status(400).json({ error: 'Provide at least one of name or link' });
+    return;
+  }
+
+  // Validate everything before touching the sidecar, so a rejected request
+  // leaves the file byte-identical
+  let name: string | null = null;
+  if (hasName) {
+    const parsed = parseDumpName(body['name']);
+    if (!parsed.ok) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    name = parsed.value;
+  }
+  let link: string | null = null;
+  if (hasLink) {
+    const parsed = parseDumpLink(body['link']);
+    if (!parsed.ok) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    link = parsed.value;
+  }
+
+  // Read-modify-write: a missing or corrupt sidecar starts from {} rather than
+  // failing the request
+  const metaPath = path.join(DUMPS_DIR, `${id}.meta`);
+  let meta: Record<string, unknown> = {};
+  try {
+    if (fs.existsSync(metaPath)) {
+      const parsed = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as unknown;
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        meta = parsed as Record<string, unknown>;
+      }
+    }
+  } catch {
+    meta = {};
+  }
+
+  // Backfill only the timestamps — never `manifestVersion`, which would poison
+  // the "not yet inspected" sentinel the listing backfill relies on
+  if (typeof meta['expiresAt'] !== 'number' || typeof meta['createdAt'] !== 'number') {
+    try {
+      const stat = fs.statSync(zipPath);
+      if (typeof meta['expiresAt'] !== 'number') meta['expiresAt'] = stat.mtimeMs + ONE_YEAR_MS;
+      if (typeof meta['createdAt'] !== 'number') meta['createdAt'] = stat.mtimeMs;
+    } catch {
+      res.status(500).json({ error: 'Failed to update dump' });
+      return;
+    }
+  }
+
+  // Absent == null: clearing a field deletes the key rather than storing null
+  if (hasName) {
+    if (name === null) delete meta['name'];
+    else meta['name'] = name;
+  }
+  if (hasLink) {
+    if (link === null) delete meta['link'];
+    else meta['link'] = link;
+  }
+
+  try {
+    writeMetaFile(metaPath, meta);
+  } catch {
+    res.status(500).json({ error: 'Failed to update dump' });
+    return;
+  }
+
+  res.json({
+    id,
+    name: typeof meta['name'] === 'string' ? meta['name'] : null,
+    link: typeof meta['link'] === 'string' ? meta['link'] : null,
+  });
+});
+
 // GET /api/dumps
 app.get('/api/dumps', generalLimiter, authFailureLimiter, requireUploadToken, (_req, res) => {
   let files: string[];
@@ -729,7 +926,7 @@ app.get('/api/dumps', generalLimiter, authFailureLimiter, requireUploadToken, (_
           meta['manifestVersion'] = info.manifestVersion;
           meta['versions'] = info.versions;
           try {
-            fs.writeFileSync(metaPath, JSON.stringify(meta));
+            writeMetaFile(metaPath, meta);
           } catch {
             /* persisting the backfill is best-effort */
           }
@@ -742,6 +939,9 @@ app.get('/api/dumps', generalLimiter, authFailureLimiter, requireUploadToken, (_
           expiresAt: new Date(meta['expiresAt'] as number).toISOString(),
           manifestVersion: (meta['manifestVersion'] as number | null) ?? null,
           versions: (meta['versions'] as Record<string, string> | null) ?? null,
+          // Absent is read as null; never backfilled (there is nothing to compute)
+          name: typeof meta['name'] === 'string' ? meta['name'] : null,
+          link: typeof meta['link'] === 'string' ? meta['link'] : null,
         };
       } catch {
         return null;

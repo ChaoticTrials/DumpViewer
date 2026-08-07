@@ -29,12 +29,24 @@ import {
   extractManifestInfo,
   cleanupOldDumps,
   parseTtlMs,
+  parseDumpName,
+  parseDumpLink,
   generateDeleteKey,
   resolveDeleteKey,
 } from './app.js';
 
 // The test dumps directory is whatever app.ts resolved at module load time
 const TEST_DUMPS_DIR = getDumpsDir();
+
+// Re-import app.ts as a fresh module so its rate-limit buckets and
+// env-derived constants start from scratch. Used by tests that must not
+// spend the shared upload budget, and by the limiter tests themselves.
+async function freshApp(env: Record<string, string>): Promise<Express> {
+  Object.assign(process.env, env);
+  vi.resetModules();
+  const mod = await import('./app.js');
+  return mod.app;
+}
 
 beforeAll(() => {
   fs.mkdirSync(TEST_DUMPS_DIR, { recursive: true });
@@ -278,6 +290,133 @@ describe('parseTtlMs()', () => {
 });
 
 // ============================================================
+// parseDumpName() unit tests
+// ============================================================
+
+describe('parseDumpName()', () => {
+  it('maps null/undefined to null', () => {
+    expect(parseDumpName(null)).toEqual({ ok: true, value: null });
+    expect(parseDumpName(undefined)).toEqual({ ok: true, value: null });
+  });
+
+  it('maps an empty or whitespace-only string to null', () => {
+    expect(parseDumpName('')).toEqual({ ok: true, value: null });
+    expect(parseDumpName('   ')).toEqual({ ok: true, value: null });
+    expect(parseDumpName('\t \t')).toEqual({ ok: true, value: null });
+  });
+
+  it('trims surrounding whitespace', () => {
+    expect(parseDumpName('  Issue #412  ')).toEqual({ ok: true, value: 'Issue #412' });
+  });
+
+  it('accepts Unicode and emoji', () => {
+    expect(parseDumpName('Ärger mit Inseln 🏝️')).toEqual({ ok: true, value: 'Ärger mit Inseln 🏝️' });
+    expect(parseDumpName('スカイブロック')).toEqual({ ok: true, value: 'スカイブロック' });
+  });
+
+  it('accepts exactly 256 characters and rejects 257', () => {
+    expect(parseDumpName('a'.repeat(256))).toEqual({ ok: true, value: 'a'.repeat(256) });
+    const tooLong = parseDumpName('a'.repeat(257));
+    expect(tooLong.ok).toBe(false);
+  });
+
+  it('measures length after trimming', () => {
+    const padded = `  ${'a'.repeat(256)}  `;
+    expect(parseDumpName(padded)).toEqual({ ok: true, value: 'a'.repeat(256) });
+  });
+
+  it('rejects non-string types', () => {
+    expect(parseDumpName(42).ok).toBe(false);
+    expect(parseDumpName(true).ok).toBe(false);
+    expect(parseDumpName({}).ok).toBe(false);
+    expect(parseDumpName(['a']).ok).toBe(false);
+  });
+
+  it('rejects C0/C1 control characters', () => {
+    expect(parseDumpName('line1\nline2').ok).toBe(false);
+    expect(parseDumpName('a\rb').ok).toBe(false);
+    expect(parseDumpName('a\tb').ok).toBe(false);
+    expect(parseDumpName('a\u0000b').ok).toBe(false);
+    expect(parseDumpName('a\u000bb').ok).toBe(false);
+    expect(parseDumpName('a\u001bb').ok).toBe(false);
+    expect(parseDumpName('a\u0085b').ok).toBe(false); // C1 NEXT LINE
+    expect(parseDumpName('a\u009bb').ok).toBe(false); // C1 CSI
+  });
+
+  it('rejects bidi control and zero-width characters', () => {
+    expect(parseDumpName('a\u202eb').ok).toBe(false); // RIGHT-TO-LEFT OVERRIDE
+    expect(parseDumpName('a\u200bb').ok).toBe(false); // ZERO WIDTH SPACE
+    expect(parseDumpName('a\u200fb').ok).toBe(false); // RIGHT-TO-LEFT MARK
+    expect(parseDumpName('a\u2066b').ok).toBe(false); // LEFT-TO-RIGHT ISOLATE
+    expect(parseDumpName('a\ufeffb').ok).toBe(false); // ZERO WIDTH NO-BREAK SPACE
+  });
+
+  it('returns an error message when rejecting', () => {
+    const res = parseDumpName('a'.repeat(257));
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(typeof res.error).toBe('string');
+  });
+});
+
+// ============================================================
+// parseDumpLink() unit tests
+// ============================================================
+
+describe('parseDumpLink()', () => {
+  it('accepts http and https URLs', () => {
+    expect(parseDumpLink('https://github.com/o/r/issues/412')).toEqual({
+      ok: true,
+      value: 'https://github.com/o/r/issues/412',
+    });
+    expect(parseDumpLink('http://example.com/x')).toEqual({ ok: true, value: 'http://example.com/x' });
+  });
+
+  it('maps null/undefined/empty/whitespace to null', () => {
+    expect(parseDumpLink(null)).toEqual({ ok: true, value: null });
+    expect(parseDumpLink(undefined)).toEqual({ ok: true, value: null });
+    expect(parseDumpLink('')).toEqual({ ok: true, value: null });
+    expect(parseDumpLink('   ')).toEqual({ ok: true, value: null });
+  });
+
+  it('trims surrounding whitespace', () => {
+    expect(parseDumpLink('  https://example.com/x  ')).toEqual({ ok: true, value: 'https://example.com/x' });
+  });
+
+  it('rejects non-http(s) schemes', () => {
+    expect(parseDumpLink('javascript:alert(1)').ok).toBe(false);
+    expect(parseDumpLink('data:text/html,<script>alert(1)</script>').ok).toBe(false);
+    expect(parseDumpLink('file:///etc/passwd').ok).toBe(false);
+    expect(parseDumpLink('ftp://example.com/x').ok).toBe(false);
+  });
+
+  it('rejects strings that are not URLs', () => {
+    expect(parseDumpLink('example.com/x').ok).toBe(false);
+    expect(parseDumpLink('not a url').ok).toBe(false);
+  });
+
+  it('accepts exactly 2048 characters and rejects 2049', () => {
+    const prefix = 'https://example.com/';
+    const ok = prefix + 'a'.repeat(2048 - prefix.length);
+    expect(ok.length).toBe(2048);
+    expect(parseDumpLink(ok)).toEqual({ ok: true, value: ok });
+    expect(parseDumpLink(ok + 'a').ok).toBe(false);
+  });
+
+  it('rejects non-string types', () => {
+    expect(parseDumpLink(42).ok).toBe(false);
+    expect(parseDumpLink({}).ok).toBe(false);
+  });
+
+  it('accepts localhost and private addresses that isSafeUrl rejects (link is never fetched)', () => {
+    expect(parseDumpLink('http://localhost:3000/issues/1')).toEqual({ ok: true, value: 'http://localhost:3000/issues/1' });
+    expect(isSafeUrl('http://localhost:3000/issues/1')).toBe(false);
+
+    expect(parseDumpLink('http://10.0.0.5/x')).toEqual({ ok: true, value: 'http://10.0.0.5/x' });
+    expect(isSafeUrl('http://10.0.0.5/x')).toBe(false);
+  });
+});
+
+// ============================================================
 // validateAndExtractManifestId() unit tests
 // ============================================================
 
@@ -435,7 +574,11 @@ describe('POST /api/dump/upload', () => {
   it('returns 200 { id, deleteKey } for a valid SBB dump zip', async () => {
     const manifestId = '550e8400-e29b-41d4-a716-446655440000';
     const buf = buildValidSbbZip(manifestId);
-    const res = await request(app).post('/api/dump/upload').attach('file', buf, 'dump.zip');
+    const res = await request(app)
+      .post('/api/dump/upload')
+      .field('name', '  My Dump  ')
+      .field('link', '  https://github.com/o/r/issues/412  ')
+      .attach('file', buf, 'dump.zip');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('id', manifestId);
     expect(res.body).toHaveProperty('deleteKey');
@@ -452,6 +595,10 @@ describe('POST /api/dump/upload', () => {
     expect(meta['versions']).toEqual({ skyblockbuilder: '1.0', minecraft: '1.20.1' });
     expect(typeof meta['createdAt']).toBe('number');
     expect(typeof meta['expiresAt']).toBe('number');
+
+    // Optional name/link fields are trimmed and stored in the sidecar
+    expect(meta['name']).toBe('My Dump');
+    expect(meta['link']).toBe('https://github.com/o/r/issues/412');
   });
 });
 
@@ -565,12 +712,19 @@ describe('POST /api/dump/import', () => {
     });
     vi.stubGlobal('fetch', mockFetch);
 
-    const res = await request(app).post('/api/dump/import').send({ url: 'https://example.com/dump.zip' });
+    const res = await request(app)
+      .post('/api/dump/import')
+      .send({ url: 'https://example.com/dump.zip', name: '  Imported dump  ', link: '  https://example.com/issue/1  ' });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('id', validId);
     expect(res.body).toHaveProperty('deleteKey');
     expect(typeof res.body.deleteKey).toBe('string');
     expect(res.body.deleteKey.length).toBeGreaterThan(0);
+
+    // Optional name/link fields are trimmed and stored in the sidecar
+    const meta = JSON.parse(fs.readFileSync(path.join(TEST_DUMPS_DIR, `${validId}.meta`), 'utf-8')) as Record<string, unknown>;
+    expect(meta['name']).toBe('Imported dump');
+    expect(meta['link']).toBe('https://example.com/issue/1');
   });
 });
 
@@ -599,6 +753,287 @@ describe('DELETE /api/dump/:id', () => {
     const res = await request(app).delete(`/api/dump/${id}`);
     expect(res.status).toBe(204);
     expect(fs.existsSync(path.join(TEST_DUMPS_DIR, `${id}.zip`))).toBe(false);
+  });
+});
+
+// ============================================================
+// PATCH /api/dump/:id
+// (all fixtures written straight to disk — no upload budget spent)
+// ============================================================
+
+describe('PATCH /api/dump/:id', () => {
+  const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+  function zipPathOf(id: string): string {
+    return path.join(TEST_DUMPS_DIR, `${id}.zip`);
+  }
+
+  function metaPathOf(id: string): string {
+    return path.join(TEST_DUMPS_DIR, `${id}.meta`);
+  }
+
+  function readMeta(id: string): Record<string, unknown> {
+    return JSON.parse(fs.readFileSync(metaPathOf(id), 'utf-8')) as Record<string, unknown>;
+  }
+
+  // Seed a dump on disk. `meta === null` writes no sidecar at all.
+  function seed(id: string, meta: Record<string, unknown> | null = {}): void {
+    fs.writeFileSync(zipPathOf(id), buildValidSbbZip(id));
+    if (meta === null) return;
+    fs.writeFileSync(metaPathOf(id), JSON.stringify({ expiresAt: Date.now() + ONE_YEAR_MS, createdAt: Date.now(), ...meta }));
+  }
+
+  it('returns 400 for an invalid id', async () => {
+    const res = await request(app).patch('/api/dump/not-a-uuid').send({ name: 'x' });
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+  });
+
+  it('returns 404 for an unknown uuid', async () => {
+    const res = await request(app).patch('/api/dump/00000000-0000-4000-8000-0000000000ff').send({ name: 'x' });
+    expect(res.status).toBe(404);
+    expect(res.body).toHaveProperty('error');
+  });
+
+  it('returns 400 when neither name nor link is present', async () => {
+    const id = '9a000000-0000-4000-8000-000000000001';
+    seed(id);
+    const res = await request(app).patch(`/api/dump/${id}`).send({});
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+  });
+
+  it('sets both fields and echoes the stored values', async () => {
+    const id = '9a000000-0000-4000-8000-000000000002';
+    seed(id);
+    const res = await request(app).patch(`/api/dump/${id}`).send({ name: 'Issue #412', link: 'https://github.com/o/r/issues/412' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ id, name: 'Issue #412', link: 'https://github.com/o/r/issues/412' });
+
+    const meta = readMeta(id);
+    expect(meta['name']).toBe('Issue #412');
+    expect(meta['link']).toBe('https://github.com/o/r/issues/412');
+  });
+
+  it('preserves every other sidecar field', async () => {
+    const id = '9a000000-0000-4000-8000-000000000003';
+    const createdAt = Date.parse('2025-05-01T00:00:00.000Z');
+    const expiresAt = createdAt + ONE_YEAR_MS;
+    const hashes = { somemod: { md5: 'abc', sha1: 'def', sha512: 'ghi' } };
+    const versions = { skyblockbuilder: '1.0', minecraft: '1.20.1' };
+    fs.writeFileSync(zipPathOf(id), buildValidSbbZip(id));
+    fs.writeFileSync(metaPathOf(id), JSON.stringify({ expiresAt, createdAt, manifestVersion: 1, versions, hashes }));
+
+    const res = await request(app).patch(`/api/dump/${id}`).send({ name: 'Only the name' });
+    expect(res.status).toBe(200);
+
+    const meta = readMeta(id);
+    expect(meta['expiresAt']).toBe(expiresAt);
+    expect(meta['createdAt']).toBe(createdAt);
+    expect(meta['manifestVersion']).toBe(1);
+    expect(meta['versions']).toEqual(versions);
+    expect(meta['hashes']).toEqual(hashes);
+    expect(meta['name']).toBe('Only the name');
+  });
+
+  it('applies a partial update, leaving the omitted field untouched', async () => {
+    const id = '9a000000-0000-4000-8000-000000000004';
+    seed(id, { name: 'Keep me', link: 'https://example.com/old' });
+
+    const res = await request(app).patch(`/api/dump/${id}`).send({ link: 'https://example.com/new' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ id, name: 'Keep me', link: 'https://example.com/new' });
+    expect(readMeta(id)['name']).toBe('Keep me');
+  });
+
+  it('clears a field via null and removes the key from the sidecar', async () => {
+    const id = '9a000000-0000-4000-8000-000000000005';
+    seed(id, { name: 'Bye', link: 'https://example.com/x' });
+
+    const res = await request(app).patch(`/api/dump/${id}`).send({ name: null });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ id, name: null, link: 'https://example.com/x' });
+
+    const meta = readMeta(id);
+    expect('name' in meta).toBe(false);
+    expect(meta['link']).toBe('https://example.com/x');
+  });
+
+  it('clears a field via an empty string and removes the key from the sidecar', async () => {
+    const id = '9a000000-0000-4000-8000-000000000006';
+    seed(id, { name: 'Bye', link: 'https://example.com/x' });
+
+    const res = await request(app).patch(`/api/dump/${id}`).send({ link: '' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ id, name: 'Bye', link: null });
+
+    const meta = readMeta(id);
+    expect('link' in meta).toBe(false);
+    expect(meta['name']).toBe('Bye');
+  });
+
+  it('trims whitespace before saving', async () => {
+    const id = '9a000000-0000-4000-8000-000000000007';
+    seed(id);
+
+    const res = await request(app).patch(`/api/dump/${id}`).send({ name: '   Trimmed   ', link: '  https://example.com/y  ' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ id, name: 'Trimmed', link: 'https://example.com/y' });
+    expect(readMeta(id)['name']).toBe('Trimmed');
+    expect(readMeta(id)['link']).toBe('https://example.com/y');
+  });
+
+  it('returns 400 for a 257-character name and leaves the sidecar byte-identical', async () => {
+    const id = '9a000000-0000-4000-8000-000000000008';
+    seed(id, { name: 'Original' });
+    const before = fs.readFileSync(metaPathOf(id));
+
+    const res = await request(app)
+      .patch(`/api/dump/${id}`)
+      .send({ name: 'a'.repeat(257) });
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+    expect(fs.readFileSync(metaPathOf(id))).toEqual(before);
+  });
+
+  it('accepts a 256-character name', async () => {
+    const id = '9a000000-0000-4000-8000-000000000009';
+    seed(id);
+    const res = await request(app)
+      .patch(`/api/dump/${id}`)
+      .send({ name: 'a'.repeat(256) });
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe('a'.repeat(256));
+  });
+
+  it('returns 400 for a javascript: link and leaves the sidecar byte-identical', async () => {
+    const id = '9a000000-0000-4000-8000-00000000000a';
+    seed(id, { link: 'https://example.com/keep' });
+    const before = fs.readFileSync(metaPathOf(id));
+
+    const res = await request(app).patch(`/api/dump/${id}`).send({ link: 'javascript:alert(1)' });
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+    expect(fs.readFileSync(metaPathOf(id))).toEqual(before);
+  });
+
+  it('returns 400 for a non-string name', async () => {
+    const id = '9a000000-0000-4000-8000-00000000000b';
+    seed(id);
+    const res = await request(app).patch(`/api/dump/${id}`).send({ name: 42 });
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+  });
+
+  it('creates a sidecar with mtime-derived timestamps and no manifestVersion key when none exists', async () => {
+    const id = '9a000000-0000-4000-8000-00000000000c';
+    seed(id, null);
+    expect(fs.existsSync(metaPathOf(id))).toBe(false);
+    const mtime = new Date('2025-03-01T00:00:00.000Z');
+    fs.utimesSync(zipPathOf(id), mtime, mtime);
+
+    const res = await request(app).patch(`/api/dump/${id}`).send({ name: 'Fresh' });
+    expect(res.status).toBe(200);
+
+    const meta = readMeta(id);
+    expect(meta['name']).toBe('Fresh');
+    expect(meta['createdAt']).toBe(mtime.getTime());
+    expect(meta['expiresAt']).toBe(mtime.getTime() + ONE_YEAR_MS);
+    expect('manifestVersion' in meta).toBe(false);
+  });
+
+  it('never writes manifestVersion into an existing sidecar that lacks it', async () => {
+    const id = '9a000000-0000-4000-8000-00000000000d';
+    fs.writeFileSync(zipPathOf(id), buildValidSbbZip(id));
+    fs.writeFileSync(metaPathOf(id), JSON.stringify({ expiresAt: Date.now() + ONE_YEAR_MS }));
+
+    const res = await request(app).patch(`/api/dump/${id}`).send({ name: 'Legacy' });
+    expect(res.status).toBe(200);
+    expect('manifestVersion' in readMeta(id)).toBe(false);
+  });
+
+  it('recovers from a corrupt sidecar instead of returning 500', async () => {
+    const id = '9a000000-0000-4000-8000-00000000000e';
+    fs.writeFileSync(zipPathOf(id), buildValidSbbZip(id));
+    fs.writeFileSync(metaPathOf(id), '{ this is not json');
+
+    const res = await request(app).patch(`/api/dump/${id}`).send({ name: 'Recovered' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ id, name: 'Recovered', link: null });
+
+    const meta = readMeta(id);
+    expect(meta['name']).toBe('Recovered');
+    expect(typeof meta['expiresAt']).toBe('number');
+    expect(typeof meta['createdAt']).toBe('number');
+    expect('manifestVersion' in meta).toBe(false);
+  });
+
+  it('ignores unknown body keys', async () => {
+    const id = '9a000000-0000-4000-8000-00000000000f';
+    seed(id);
+    const res = await request(app).patch(`/api/dump/${id}`).send({ name: 'Known', nope: 'ignored', expiresAt: 1 });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ id, name: 'Known', link: null });
+    expect('nope' in readMeta(id)).toBe(false);
+  });
+});
+
+// ============================================================
+// Upload / import metadata validation
+// (fresh module ⇒ fresh upload bucket, so these POSTs cost nothing)
+// ============================================================
+
+describe('Upload/import metadata validation', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it('rejects a 257-character name on upload without writing the zip', async () => {
+    const app2 = await freshApp({});
+    const id = '7b000000-0000-4000-8000-000000000001';
+    const res = await request(app2)
+      .post('/api/dump/upload')
+      .field('name', 'a'.repeat(257))
+      .attach('file', buildValidSbbZip(id), 'dump.zip');
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+    expect(fs.existsSync(path.join(TEST_DUMPS_DIR, `${id}.zip`))).toBe(false);
+  });
+
+  it('rejects a javascript: link on upload without writing the zip', async () => {
+    const app2 = await freshApp({});
+    const id = '7b000000-0000-4000-8000-000000000002';
+    const res = await request(app2)
+      .post('/api/dump/upload')
+      .field('link', 'javascript:alert(1)')
+      .attach('file', buildValidSbbZip(id), 'dump.zip');
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+    expect(fs.existsSync(path.join(TEST_DUMPS_DIR, `${id}.zip`))).toBe(false);
+  });
+
+  it('rejects a javascript: link on import before fetching anything', async () => {
+    const app2 = await freshApp({});
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    const res = await request(app2).post('/api/dump/import').send({ url: 'https://example.com/dump.zip', link: 'javascript:alert(1)' });
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a 257-character name on import before fetching anything', async () => {
+    const app2 = await freshApp({});
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    const res = await request(app2)
+      .post('/api/dump/import')
+      .send({ url: 'https://example.com/dump.zip', name: 'a'.repeat(257) });
+    expect(res.status).toBe(400);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 
@@ -801,6 +1236,21 @@ describe('Auth token protection', () => {
     expect(res.body).toHaveProperty('error');
   });
 
+  it('PATCH /api/dump/:id returns 401 with no token', async () => {
+    const res = await request(tokenApp).patch('/api/dump/00000000-0000-4000-8000-000000000003').send({ name: 'x' });
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('error');
+  });
+
+  it('PATCH /api/dump/:id returns 401 with a wrong token', async () => {
+    const res = await request(tokenApp)
+      .patch('/api/dump/00000000-0000-4000-8000-000000000003')
+      .set('Authorization', 'Bearer wrong-token')
+      .send({ name: 'x' });
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('error');
+  });
+
   it('GET /api/dumps returns 401 with no token', async () => {
     const res = await request(tokenApp).get('/api/dumps');
     expect(res.status).toBe(401);
@@ -837,13 +1287,6 @@ describe('Auth brute-force protection', () => {
     delete process.env.AUTH_FAIL_DELAY_MS;
     vi.resetModules();
   });
-
-  async function freshApp(env: Record<string, string>): Promise<Express> {
-    Object.assign(process.env, env);
-    vi.resetModules();
-    const mod = await import('./app.js');
-    return mod.app;
-  }
 
   it('locks out an IP after too many failed auth attempts, without counting successful ones', async () => {
     const app2 = await freshApp({ AUTH_TOKEN: 'brute-secret', AUTH_FAIL_LIMIT: '2', AUTH_FAIL_DELAY_MS: '0' });
@@ -989,6 +1432,8 @@ describe('GET /api/dumps', () => {
     expiresAt: string;
     manifestVersion: number | null;
     versions: Record<string, string> | null;
+    name: string | null;
+    link: string | null;
   };
 
   function findDump(res: request.Response, id: string): DumpEntry {
@@ -1058,6 +1503,60 @@ describe('GET /api/dumps', () => {
     // A second call returns the same expiry (persisted, not recomputed)
     const res2 = await request(app).get('/api/dumps');
     expect(findDump(res2, id).expiresAt).toBe(dump.expiresAt);
+  });
+
+  it('reports name/link as null when the sidecar has neither, without writing the keys back', async () => {
+    const id = 'aaaa1111-0000-4000-8000-000000000006';
+    const metaPath = path.join(TEST_DUMPS_DIR, `${id}.meta`);
+    fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.zip`), buildValidSbbZip(id));
+    fs.writeFileSync(metaPath, JSON.stringify({ expiresAt: Date.now() + 12345, createdAt: Date.now(), manifestVersion: 1, versions: {} }));
+
+    const res = await request(app).get('/api/dumps');
+    const dump = findDump(res, id);
+    expect(dump.name).toBeNull();
+    expect(dump.link).toBeNull();
+
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
+    expect('name' in meta).toBe(false);
+    expect('link' in meta).toBe(false);
+  });
+
+  it('echoes name/link verbatim from an enriched sidecar', async () => {
+    const id = 'aaaa1111-0000-4000-8000-000000000007';
+    fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.zip`), buildValidSbbZip(id));
+    fs.writeFileSync(
+      path.join(TEST_DUMPS_DIR, `${id}.meta`),
+      JSON.stringify({
+        expiresAt: Date.now() + 12345,
+        createdAt: Date.now(),
+        manifestVersion: 1,
+        versions: {},
+        name: 'Issue #412',
+        link: 'https://github.com/o/r/issues/412',
+      }),
+    );
+
+    const dump = findDump(await request(app).get('/api/dumps'), id);
+    expect(dump.name).toBe('Issue #412');
+    expect(dump.link).toBe('https://github.com/o/r/issues/412');
+  });
+
+  it('preserves name/link through the manifestVersion backfill', async () => {
+    const id = 'aaaa1111-0000-4000-8000-000000000008';
+    const metaPath = path.join(TEST_DUMPS_DIR, `${id}.meta`);
+    const expiresAt = Date.now() + 987654;
+    fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.zip`), buildValidSbbZip(id));
+    fs.writeFileSync(metaPath, JSON.stringify({ expiresAt, name: 'Legacy name', link: 'https://example.com/legacy' }));
+
+    const dump = findDump(await request(app).get('/api/dumps'), id);
+    expect(dump.manifestVersion).toBe(1);
+    expect(dump.name).toBe('Legacy name');
+    expect(dump.link).toBe('https://example.com/legacy');
+
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
+    expect(meta['manifestVersion']).toBe(1);
+    expect(meta['name']).toBe('Legacy name');
+    expect(meta['link']).toBe('https://example.com/legacy');
   });
 
   it('marks an unreadable zip with null fields and suppresses re-parsing', async () => {

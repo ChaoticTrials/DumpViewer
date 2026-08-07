@@ -64,7 +64,11 @@ Both logs and crash reports have a **search box** that filters lines down to tho
 
 Navigate to `/admin` to manage all dumps stored on the server. The panel asks for the auth token and keeps it in `sessionStorage` — it survives reloads in the same tab, but a new tab or a closed-and-reopened browser asks again.
 
-The panel lists every stored dump — manifest format, manifest ID, Minecraft version, Skyblock Builder version, creation date, and expiry — sorted so the dumps expiring soonest come first. Each row has a **View** button (opens the dump at `/<id>` in a new tab) and a **Delete** button (asks for a confirming second click before deleting).
+The panel lists every stored dump — manifest format, name, link, manifest ID, Minecraft version, Skyblock Builder version, creation date, and expiry — sorted so the dumps expiring soonest come first. Each row has a **View** button (opens the dump at `/<id>` in a new tab) and a **Delete** button (asks for a confirming second click before deleting).
+
+**Name and link** are optional labels for a stored dump — for example "Issue #412" pointing at the GitHub issue the dump came from. They are display metadata only: dumps stay reachable at `/<manifest-id>` and nowhere else, and neither is shown on the dump viewing page.
+
+Click a **Name** or **Link** cell in the admin panel to edit it inline: <kbd>Enter</kbd> saves, <kbd>Escape</kbd> cancels, and emptying the field clears it. A row with no name shows its manifest ID greyed out as a placeholder; a row with no link shows a muted dash. Both can also be supplied when the dump is stored, via the `name`/`link` fields of `POST /api/dump/upload` and `POST /api/dump/import`, or changed later with `PATCH /api/dump/:id` (see [API.md](API.md)). Note that re-uploading a dump with the same manifest ID clears any metadata not sent with that upload.
 
 ---
 
