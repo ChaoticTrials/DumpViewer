@@ -50,6 +50,16 @@ Uploading or importing also returns a `deleteKey` — anyone with that key can d
 
 To push a dump to the server from the command line, use the API directly (see [API.md](API.md)).
 
+### Viewing files
+
+Pick a file in the sidebar to open it. Configs, NBT and binary files each get their own viewer; `.log` files and `crash-report.txt` additionally get a filter toolbar.
+
+For logs, the **INFO / WARN / ERROR / FATAL / DEBUG** pills toggle which severities are shown; the count next to each pill is how many entries that level has. Deselecting any pill adds a **Reset** button that re-enables all of them.
+
+Both logs and crash reports have a **search box** that filters lines down to those containing what you typed. The search is a plain, case-insensitive substring match — not a regular expression — so pasting a fragment like `[main/ERROR]` or `net.minecraft.world` works verbatim. Matching lines keep their original line numbers, and for logs a matching stack-trace line keeps the whole log entry it belongs to. The chip next to the box shows how many of the file's lines survived the filter, `×` (or <kbd>Escape</kbd>) clears the query, and the search combines with the level pills. Selecting a different file clears the search.
+
+**Copy** and **Download** always export the full file, never the filtered view.
+
 ### Admin panel
 
 Navigate to `/admin` to manage all dumps stored on the server. The panel asks for the auth token and keeps it in `sessionStorage` — it survives reloads in the same tab, but a new tab or a closed-and-reopened browser asks again.

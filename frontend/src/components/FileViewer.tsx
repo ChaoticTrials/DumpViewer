@@ -192,7 +192,8 @@ export default function FileViewer({ selected, dump }: Props) {
           </div>
         </div>
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <LogViewer content={content} />
+          {/* key: remount per file so a stale search query can't make a fresh file look empty */}
+          <LogViewer key={file.path} content={content} />
         </div>
       </div>
     );
@@ -214,7 +215,8 @@ export default function FileViewer({ selected, dump }: Props) {
           </div>
         </div>
         <div className="file-viewer-body">
-          <CrashReportViewer content={content} />
+          {/* key: remount per file so a stale search query can't make a fresh file look empty */}
+          <CrashReportViewer key={file.path} content={content} />
         </div>
       </div>
     );

@@ -1,44 +1,23 @@
-import { useMemo, useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { useIsMobile } from '../../utils/useIsMobile';
+import { parseCrashReport } from '../../utils/crashReport';
+import { filterNumberedLines, splitNumberedLines } from '../../utils/lineSearch';
+import ViewerSearch from './ViewerSearch';
 
 interface Props {
   content: string;
-}
-
-function parseCrashReport(content: string) {
-  const lines = content.split('\n');
-  let description = '';
-  let exception = '';
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line.startsWith('Description:')) {
-      description = line.replace('Description:', '').trim();
-    }
-    // Exception line: starts with a known exception class or "net." / "java." etc.
-    if (
-      !exception &&
-      description &&
-      (line.match(/^[a-z][\w.]+Exception:/) || line.match(/^[a-z][\w.]+Error:/) || line.match(/^\w[\w.]+Exception$/))
-    ) {
-      // Collect multiline exception (may span several lines before "at ...")
-      const excLines: string[] = [line];
-      for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
-        const next = lines[j].trim();
-        if (next.startsWith('at ') || next.startsWith('Stacktrace:') || next === '') break;
-        excLines.push(next);
-      }
-      exception = excLines.join('\n');
-    }
-  }
-
-  return { description, exception };
 }
 
 export default function CrashReportViewer({ content }: Props) {
   const { description, exception } = useMemo(() => parseCrashReport(content), [content]);
   const isMobile = useIsMobile();
   const [exceptionCollapsed, setExceptionCollapsed] = useState(true);
+
+  const lines = useMemo(() => splitNumberedLines(content), [content]);
+  const [query, setQuery] = useState('');
+  // No debounce timer needed: React drops renders made stale by newer keystrokes.
+  const deferredQuery = useDeferredValue(query);
+  const filtered = useMemo(() => filterNumberedLines(lines, deferredQuery), [lines, deferredQuery]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -58,8 +37,17 @@ export default function CrashReportViewer({ content }: Props) {
           )}
         </div>
       )}
+      <div className="viewer-toolbar">
+        <ViewerSearch value={query} onChange={setQuery} resultCount={filtered.length} totalCount={lines.length} />
+      </div>
       <div className="crash-body" style={{ flex: 1, overflow: 'auto' }}>
-        <pre>{content}</pre>
+        {filtered.length === 0 && lines.length > 0 && <div className="viewer-search-empty">No lines match your search.</div>}
+        {filtered.map((line) => (
+          <div key={line.index} className="crash-line">
+            <span className="crash-lineno">{line.index}</span>
+            <span className="crash-text">{line.text}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
