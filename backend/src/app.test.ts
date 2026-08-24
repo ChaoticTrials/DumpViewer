@@ -1956,9 +1956,10 @@ describe('GET /api/dump/:id/modpack', () => {
     beforeAll(() => {
       const buf = buildModpackTestDump({
         manifestId: FILE_MAP_ID,
-        settings: { configs: true, level_dat: true },
+        settings: { configs: true, 'level|world_gen_settings': true },
         files: [
           { path: 'level.dat', data: 'LEVELDAT' },
+          { path: 'world_gen_settings.dat', data: 'WORLDGEN' },
           { path: 'config/customization.json5', data: 'CUSTOMIZATION' },
           { path: 'config/permissions.json5', data: 'PERMISSIONS' },
           { path: 'templates/islands/default.nbt', data: 'NBT' },
@@ -1975,6 +1976,14 @@ describe('GET /api/dump/:id/modpack', () => {
       const entry = zip.getEntry('overrides/saves/SkyBlock/level.dat');
       expect(entry).not.toBeNull();
       expect(entry!.getData().toString('utf-8')).toBe('LEVELDAT');
+    });
+
+    it('places world_gen_settings.dat at overrides/saves/SkyBlock/data/minecraft/world_gen_settings.dat', async () => {
+      const { buffer } = await getModpackBuffer(`/api/dump/${FILE_MAP_ID}/modpack?platform=curseforge`);
+      const zip = new AdmZip(buffer);
+      const entry = zip.getEntry('overrides/saves/SkyBlock/data/minecraft/world_gen_settings.dat');
+      expect(entry).not.toBeNull();
+      expect(entry!.getData().toString('utf-8')).toBe('WORLDGEN');
     });
 
     it('maps config/* to overrides/config/skyblockbuilder/*', async () => {
@@ -2003,6 +2012,7 @@ describe('GET /api/dump/:id/modpack', () => {
       const { buffer } = await getModpackBuffer(`/api/dump/${FILE_MAP_ID}/modpack?platform=modrinth`);
       const zip = new AdmZip(buffer);
       expect(zip.getEntry('overrides/saves/SkyBlock/level.dat')).not.toBeNull();
+      expect(zip.getEntry('overrides/saves/SkyBlock/data/minecraft/world_gen_settings.dat')).not.toBeNull();
       expect(zip.getEntry('overrides/config/skyblockbuilder/customization.json5')).not.toBeNull();
       expect(zip.getEntry('overrides/config/skyblockbuilder/templates/islands/default.nbt')).not.toBeNull();
       expect(zip.getEntries().some((e) => e.entryName.includes('logs/'))).toBe(false);

@@ -9,8 +9,8 @@ import crypto from 'node:crypto';
 import dns from 'node:dns';
 import { fileURLToPath } from 'node:url';
 import { Agent, fetch as undiciFetch } from 'undici';
-import { lookupCurseForgeFile, lookupModrinthVersion } from './platform-api.js';
 import type { CfModEntry, MrModEntry } from './platform-api.js';
+import { lookupCurseForgeFile, lookupModrinthVersion } from './platform-api.js';
 
 // Resolve platform-ids.json from same directory as this file (works in both tsx dev and compiled dist/)
 const MODPACK_IDS_PATH = new URL('./platform-ids.json', import.meta.url).pathname;
@@ -19,6 +19,7 @@ type ModpackIds = Record<string, { curseforge: number | string | null; modrinth:
 
 const DUMPS_DIR = path.resolve(process.env.DUMPS_DIR ?? './dumps');
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? '*';
+
 function loadAuthToken(): string {
   if (process.env.AUTH_TOKEN) return process.env.AUTH_TOKEN;
   const file = process.env.AUTH_TOKEN_FILE ?? '/run/secrets/dumpviewer_token';
@@ -28,6 +29,7 @@ function loadAuthToken(): string {
     return '';
   }
 }
+
 const AUTH_TOKEN = loadAuthToken();
 const KEYS_DIR = path.join(DUMPS_DIR, 'keys');
 
@@ -1014,6 +1016,9 @@ app.get('/api/dump/:id/modpack', modpackLimiter, async (req, res) => {
     if (entryPath === 'level.dat' || entryPath.endsWith('/level.dat')) {
       return 'overrides/saves/SkyBlock/level.dat';
     }
+    if (entryPath === 'world_gen_settings.dat' || entryPath.endsWith('/world_gen_settings.dat')) {
+      return 'overrides/saves/SkyBlock/data/minecraft/world_gen_settings.dat';
+    }
     if (entryPath.startsWith('config/')) {
       return `overrides/config/skyblockbuilder/${entryPath.slice('config/'.length)}`;
     }
@@ -1054,7 +1059,15 @@ app.get('/api/dump/:id/modpack', modpackLimiter, async (req, res) => {
     const results = await Promise.allSettled(lookups);
     const files = results.map((r) => (r.status === 'fulfilled' ? r.value : null)).filter((v): v is CfModEntry => v !== null);
 
-    const modLoaders = loaderName && loaderVersion ? [{ id: `${loaderName}-${loaderVersion}`, primary: true }] : [];
+    const modLoaders =
+      loaderName && loaderVersion
+        ? [
+            {
+              id: `${loaderName}-${loaderVersion}`,
+              primary: true,
+            },
+          ]
+        : [];
 
     const cfManifest = {
       minecraft: { version: mcVersion, modLoaders },

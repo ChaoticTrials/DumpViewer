@@ -22,6 +22,12 @@ describe('parseManifest', () => {
     expect(manifest.manifest_version).toBe(2);
   });
 
+  it('routes to v3 by manifest_version 3', () => {
+    const raw = { ...baseManifest, manifest_version: 3, hashes: {} };
+    const manifest = parseManifest(raw);
+    expect(manifest.manifest_version).toBe(3);
+  });
+
   it('throws for unknown manifest_version', () => {
     expect(() => parseManifest({ ...baseManifest, manifest_version: 99 })).toThrow('Unknown manifest_version: 99');
   });
@@ -56,9 +62,15 @@ describe('parseDump', () => {
     expect(dump.manifest.manifest_version).toBe(2);
   });
 
+  it('parses a valid v3 dump zip', async () => {
+    const file = await buildDumpFile({ ...baseManifest, manifest_version: 3, hashes: {} });
+    const dump = await parseDump(file);
+    expect(dump.manifest.manifest_version).toBe(3);
+  });
+
   it('rejects an unknown manifest_version', async () => {
-    const file = await buildDumpFile({ ...baseManifest, manifest_version: 3 });
-    await expect(parseDump(file)).rejects.toThrow('Unknown manifest_version: 3');
+    const file = await buildDumpFile({ ...baseManifest, manifest_version: 99 });
+    await expect(parseDump(file)).rejects.toThrow('Unknown manifest_version: 99');
   });
 
   it('rejects a manifest without a version', async () => {

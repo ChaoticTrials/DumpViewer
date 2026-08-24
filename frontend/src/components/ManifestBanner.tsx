@@ -24,6 +24,7 @@ const SETTING_LABELS: Record<string, string> = {
   configs: 'Configs',
   templates: 'Templates',
   level_dat: 'level.dat',
+  'level|world_gen_settings': 'Level Data',
   log: 'Log',
   crash_report: 'Crash Report',
   world_data: 'World Data',
