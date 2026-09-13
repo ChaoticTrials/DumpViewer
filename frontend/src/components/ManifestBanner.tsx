@@ -5,12 +5,17 @@ import ThemeToggle from './ThemeToggle';
 import { HeaderLogo } from './HeaderLogo.tsx';
 import { useIsMobile } from '../utils/useIsMobile';
 import { downloadBlob } from '../utils/download';
+import { modpackUrl, ephervexImportUrl } from '../utils/ephervexLink';
 import { FaUpload, FaDownload, FaCheck, FaSpinner } from 'react-icons/fa6';
 
 const _rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
 const API_URL: string = import.meta.env.PROD ? (_rawApiUrl ?? '') : (_rawApiUrl ?? '');
 // In dev, no VITE_API_URL means browser-only mode (no backend to upload to).
 const BACKEND_AVAILABLE = import.meta.env.PROD || _rawApiUrl !== undefined;
+
+// Where to send someone who does not have the launcher yet. Empty until Ephervex
+// has a public download page; the fallback hint omits the link while it is unset.
+const EPHERVEX_SITE: string = '';
 
 interface Props {
   manifest: AnyManifest;
@@ -63,6 +68,8 @@ export default function ManifestBanner({ manifest, expiresAt, sourceFile, onRese
 
   const [modpackOpen, setModpackOpen] = useState(false);
   const [modpackLoading, setModpackLoading] = useState<'curseforge' | 'modrinth' | null>(null);
+  const [ephervexHint, setEphervexHint] = useState(false);
+  const ephervexHintTimer = useRef<number | null>(null);
   const modpackRef = useRef<HTMLDivElement>(null);
 
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -81,16 +88,47 @@ export default function ManifestBanner({ manifest, expiresAt, sourceFile, onRese
     setDeleteUrlCopied(false);
   }
 
+  function cancelEphervexHint() {
+    if (ephervexHintTimer.current !== null) {
+      window.clearTimeout(ephervexHintTimer.current);
+      ephervexHintTimer.current = null;
+    }
+  }
+
+  function closeModpackDropdown() {
+    setModpackOpen(false);
+    setEphervexHint(false);
+    cancelEphervexHint();
+  }
+
   useEffect(() => {
     if (!modpackOpen) return;
     function handleOutside(e: MouseEvent) {
       if (modpackRef.current && !modpackRef.current.contains(e.target as Node)) {
-        setModpackOpen(false);
+        closeModpackDropdown();
       }
     }
     document.addEventListener('mousedown', handleOutside);
     return () => document.removeEventListener('mousedown', handleOutside);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modpackOpen]);
+
+  // Losing focus or visibility means the operating system handed the deep link
+  // to an application, so the "did not open" hint is no longer wanted.
+  useEffect(() => {
+    function handedOver() {
+      cancelEphervexHint();
+    }
+    window.addEventListener('blur', handedOver);
+    window.addEventListener('pagehide', handedOver);
+    document.addEventListener('visibilitychange', handedOver);
+    return () => {
+      window.removeEventListener('blur', handedOver);
+      window.removeEventListener('pagehide', handedOver);
+      document.removeEventListener('visibilitychange', handedOver);
+      cancelEphervexHint();
+    };
+  }, []);
 
   useEffect(() => {
     if (!uploadOpen) return;
@@ -151,8 +189,22 @@ export default function ManifestBanner({ manifest, expiresAt, sourceFile, onRese
     }
   }
 
+  // Hands the generated .mrpack to the launcher over its own URL scheme. The
+  // browser cannot report whether a handler is registered, so the fallback is
+  // time-based: still focused after the handover should have happened means
+  // nothing took it.
+  function openInEphervex() {
+    const packUrl = modpackUrl(API_URL, window.location.origin, manifest.manifest_id, 'modrinth');
+    const link = packUrl ? ephervexImportUrl(packUrl) : null;
+    if (!link) return;
+    setEphervexHint(false);
+    cancelEphervexHint();
+    ephervexHintTimer.current = window.setTimeout(() => setEphervexHint(true), 2000);
+    window.location.href = link;
+  }
+
   async function triggerModpackDownload(platform: 'curseforge' | 'modrinth') {
-    setModpackOpen(false);
+    closeModpackDropdown();
     setModpackLoading(platform);
     const ext = platform === 'modrinth' ? '.mrpack' : '.zip';
     try {
@@ -385,9 +437,9 @@ export default function ManifestBanner({ manifest, expiresAt, sourceFile, onRese
         <div ref={modpackRef} style={{ position: 'relative' }}>
           <button
             className={isMobile ? 'icon-btn' : 'upload-btn'}
-            onClick={() => isServerStored && setModpackOpen((v) => !v)}
+            onClick={() => isServerStored && (modpackOpen ? closeModpackDropdown() : setModpackOpen(true))}
             disabled={!isServerStored || modpackLoading !== null}
-            title={!isServerStored ? 'Only available for server-stored dumps' : 'Download modpack'}
+            title={!isServerStored ? 'Only available for server-stored dumps' : 'Export as a modpack'}
             style={!isServerStored ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
           >
             {modpackLoading ? <FaSpinner className="spin-icon" /> : <FaDownload />}
@@ -401,6 +453,30 @@ export default function ManifestBanner({ manifest, expiresAt, sourceFile, onRese
               <button className="modpack-dropdown-item" onClick={() => triggerModpackDownload('modrinth')}>
                 Modrinth
               </button>
+              <hr className="modpack-dropdown-hr" />
+              <button
+                className="modpack-dropdown-item"
+                onClick={openInEphervex}
+                title="Import the Modrinth pack into the Ephervex launcher"
+              >
+                Open in Ephervex
+              </button>
+              {ephervexHint && (
+                <div className="modpack-dropdown-hint">
+                  Ephervex did not open.{' '}
+                  <button className="modpack-dropdown-hint-link" onClick={() => triggerModpackDownload('modrinth')}>
+                    Download .mrpack
+                  </button>
+                  {EPHERVEX_SITE && (
+                    <>
+                      {' or '}
+                      <a href={EPHERVEX_SITE} target="_blank" rel="noreferrer">
+                        get Ephervex
+                      </a>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

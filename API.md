@@ -173,6 +173,67 @@ Returns `404` if no dump with that id exists, `400` if the id is not a valid UUI
 
 ---
 
+## `GET /api/dump/:id/modpack`
+
+Build an installable modpack from a stored dump. **Always public — no auth required.**
+
+- **Query:** `platform` — `curseforge` or `modrinth`. Required.
+
+```
+GET /api/dump/550e8400-e29b-41d4-a716-446655440000/modpack?platform=modrinth
+```
+
+| `platform`   | Response                                                | Index file            |
+| ------------ | ------------------------------------------------------- | --------------------- |
+| `curseforge` | `application/zip`, `SkyBlock-modpack.zip`               | `manifest.json`       |
+| `modrinth`   | `application/x-modrinth-modpack+zip`, `SkyBlock.mrpack` | `modrinth.index.json` |
+
+Mod entries are resolved live against `curse.moddingx.org` and `api.modrinth.com` from the
+dump's `versions` object and the server's `platform-ids.json`. A mod that cannot be resolved
+is silently dropped, so a partially resolved pack is still returned with `200`.
+
+Both formats carry the same overrides, remapped from the dump layout:
+
+| Dump path                | Override path                                                    |
+| ------------------------ | ---------------------------------------------------------------- |
+| `config/<file>`          | `overrides/config/skyblockbuilder/<file>`                        |
+| `templates/<rest>`       | `overrides/config/skyblockbuilder/templates/<rest>`              |
+| `level.dat`              | `overrides/saves/SkyBlock/level.dat`                             |
+| `world_gen_settings.dat` | `overrides/saves/SkyBlock/data/minecraft/world_gen_settings.dat` |
+
+Logs, crash reports, and anything else are skipped, as are entries whose declared
+uncompressed size exceeds 64 MB.
+
+Returns `400` if the id is not a valid UUID v4 or `platform` is missing/unknown, `404` if no
+dump with that id exists, `422` if the stored zip has no `manifest.json`.
+
+This URL is also what the launcher deep link carries — see
+[Opening a dump in a launcher](#opening-a-dump-in-a-launcher).
+
+---
+
+## Opening a dump in a launcher
+
+The Modrinth pack URL above can be handed to a launcher directly through a custom URL
+scheme, so the pack is imported without a manual download:
+
+```
+ephervex://import?url=<urlencoded modpack url>
+```
+
+```
+ephervex://import?url=https%3A%2F%2Fdumps.example.com%2Fapi%2Fdump%2F550e8400-e29b-41d4-a716-446655440000%2Fmodpack%3Fplatform%3Dmodrinth
+```
+
+The `url` parameter is a single percent-encoded absolute `http`/`https` URL. Nothing about
+the scheme is DumpViewer-specific: the launcher downloads whatever pack the URL serves.
+Modrinth is used rather than CurseForge because a `.mrpack` index carries direct download
+addresses and hashes, so the launcher needs no CurseForge API credentials.
+
+The frontend builds the link in `frontend/src/utils/ephervexLink.ts`.
+
+---
+
 ## `DELETE /api/dump/:id`
 
 Delete a stored dump.

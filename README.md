@@ -25,6 +25,7 @@ The backend is optional for local file loading but required for:
 
 - **URL loading** — the backend fetches the URL server-side, bypassing CORS restrictions
 - **Manifest ID routing** — dumps are stored as `<manifest-id>.zip` and accessible at `/<manifest-id>`
+- **Modpack export** — building a pack reads the stored zip and resolves mod files against the CurseForge and Modrinth APIs server-side
 
 In production (Docker), the backend also serves the frontend static files, so only one port is needed.
 
@@ -59,6 +60,28 @@ For logs, the **INFO / WARN / ERROR / FATAL / DEBUG** pills toggle which severit
 Both logs and crash reports have a **search box** that filters lines down to those containing what you typed. The search is a plain, case-insensitive substring match — not a regular expression — so pasting a fragment like `[main/ERROR]` or `net.minecraft.world` works verbatim. Matching lines keep their original line numbers, and for logs a matching stack-trace line keeps the whole log entry it belongs to. The chip next to the box shows how many of the file's lines survived the filter, `×` (or <kbd>Escape</kbd>) clears the query, and the search combines with the level pills. Selecting a different file clears the search.
 
 **Copy** and **Download** always export the full file, never the filtered view.
+
+### Exporting a modpack
+
+The **Modpack** button in the header turns a dump into an installable pack. It needs the dump to be stored on the server, so it stays disabled for a dump you only opened locally — upload it first, then use **Continue** to reload the page at `/<id>`.
+
+The dropdown offers three things:
+
+- **CurseForge** — downloads `SkyBlock-modpack.zip` with a CurseForge `manifest.json`
+- **Modrinth** — downloads `SkyBlock.mrpack` with a `modrinth.index.json`
+- **Open in Ephervex** — hands the Modrinth pack straight to the Ephervex launcher instead of downloading it
+
+Either pack contains the dump's configs under `config/skyblockbuilder/` and its world data under `saves/SkyBlock/`, plus every mod the dump's `versions` object names that could be resolved on that platform. A mod that cannot be resolved is left out rather than failing the export.
+
+**Open in Ephervex** navigates to a custom URL scheme:
+
+```
+ephervex://import?url=<urlencoded modpack url>
+```
+
+The browser asks for permission to open the external application, and the launcher downloads the pack from that URL and imports it. Nothing in the scheme is DumpViewer-specific — the `url` parameter is just a percent-encoded `http`/`https` pack address. Modrinth is used because a `.mrpack` index carries direct download addresses and hashes, so the launcher needs no CurseForge API credentials.
+
+A browser cannot report whether a scheme handler is registered, so if nothing takes over within about two seconds the dropdown offers a plain `.mrpack` download instead. This also requires a launcher that registers the `ephervex://` scheme; see [API.md](API.md#opening-a-dump-in-a-launcher) for the link contract.
 
 ### Admin panel
 

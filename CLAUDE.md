@@ -91,6 +91,7 @@ The frontend can parse and display dumps entirely locally — no upload required
 - `VITE_API_URL` (default `http://localhost:3001`) prefixes all API calls.
 - In production, the backend serves the frontend's `dist/` as static files and falls back to `index.html` for SPA routing.
 - The frontend detects a UUID v4 in the URL path and fetches the dump zip from `GET /api/dump/:id`.
+- **Launcher deep link**: the modpack dropdown's "Open in Ephervex" item navigates to `ephervex://import?url=<urlencoded pack url>`. The `url` must be an **absolute** `http`/`https` address — `ManifestBanner`'s own `fetch` calls get away with a relative `/api/...` path, a deep link cannot. `frontend/src/utils/ephervexLink.ts` owns both halves of that (pure, so it is testable under the node-environment vitest config) and returns `null` rather than wrapping a non-http URL. Modrinth is the only format offered over the link: a `.mrpack` index carries direct download addresses and hashes, so the launcher needs no CurseForge API key. A browser cannot report whether a scheme handler exists, hence the timed fallback hint that `blur`/`pagehide`/`visibilitychange` cancel.
 - **Dev has no Vite proxy**: `/api/*` only exists on the backend (port 3001). Hitting `localhost:5173/api/...` reaches the SPA, which silently falls back to the home page — API URLs (uploads, delete links) must use port 3001 in dev. In production both live on one port, so this gotcha is dev-only.
 
 ## Workflow
