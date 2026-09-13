@@ -999,6 +999,13 @@ app.get('/api/dump/:id/modpack', modpackLimiter, async (req, res) => {
     return;
   }
 
+  let packInstanceName = 'SkyBlock';
+  const metaFilePath = path.join(DUMPS_DIR, `${id}.meta`);
+  if (fs.existsSync(metaFilePath)) {
+    const metaJson = JSON.parse(fs.readFileSync(metaFilePath).toString('utf-8'));
+    packInstanceName = metaJson['name'] ?? packInstanceName;
+  }
+
   const versions = (manifest['versions'] ?? {}) as Record<string, unknown>;
   const mcVersion = (versions['minecraft'] as string | undefined) ?? '';
   const forgeVersion = (versions['forge'] as string | undefined) ?? null;
@@ -1073,8 +1080,8 @@ app.get('/api/dump/:id/modpack', modpackLimiter, async (req, res) => {
       minecraft: { version: mcVersion, modLoaders },
       manifestType: 'minecraftModpack',
       manifestVersion: 1,
-      name: 'SkyBlock',
-      version: '1.0',
+      name: packInstanceName,
+      version: '1.0.0',
       author: '',
       files,
       overrides: 'overrides',
@@ -1114,7 +1121,7 @@ app.get('/api/dump/:id/modpack', modpackLimiter, async (req, res) => {
       formatVersion: 1,
       game: 'minecraft',
       versionId: '1.0.0',
-      name: 'SkyBlock',
+      name: packInstanceName,
       files,
       dependencies,
     };
