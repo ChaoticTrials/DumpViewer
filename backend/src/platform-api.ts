@@ -10,13 +10,13 @@ interface CfFileEntry {
 }
 
 export interface CfModEntry {
-  projectID: number | string;
+  projectID: number;
   fileID: number;
   required: true;
 }
 
 export async function lookupCurseForgeFile(
-  cfId: number | string,
+  cfId: number,
   mcVersion: string,
   modVersion: string,
   signal: AbortSignal,

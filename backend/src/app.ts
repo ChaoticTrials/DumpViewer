@@ -15,7 +15,7 @@ import { lookupCurseForgeFile, lookupModrinthVersion } from './platform-api.js';
 // Resolve platform-ids.json from same directory as this file (works in both tsx dev and compiled dist/)
 const MODPACK_IDS_PATH = new URL('./platform-ids.json', import.meta.url).pathname;
 
-type ModpackIds = Record<string, { curseforge: number | string | null; modrinth: string | null }>;
+type ModpackIds = Record<string, { curseforge: number | null; modrinth: string | null }>;
 
 const DUMPS_DIR = path.resolve(process.env.DUMPS_DIR ?? './dumps');
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? '*';
