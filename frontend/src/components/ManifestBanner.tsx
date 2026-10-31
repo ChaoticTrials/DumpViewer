@@ -193,9 +193,13 @@ export default function ManifestBanner({ manifest, expiresAt, sourceFile, onRese
   // browser cannot report whether a handler is registered, so the fallback is
   // time-based: still focused after the handover should have happened means
   // nothing took it.
+  // `null` when the pack cannot be served over https (e.g. a plain-http dev
+  // backend), since Ephervex refuses to download it from anywhere else.
+  const packUrl = modpackUrl(API_URL, window.location.origin, manifest.manifest_id);
+  const ephervexLink = packUrl ? ephervexImportUrl(packUrl) : null;
+
   function openInEphervex() {
-    const packUrl = modpackUrl(API_URL, window.location.origin, manifest.manifest_id, 'modrinth');
-    const link = packUrl ? ephervexImportUrl(packUrl) : null;
+    const link = ephervexLink;
     if (!link) return;
     setEphervexHint(false);
     cancelEphervexHint();
@@ -457,7 +461,13 @@ export default function ManifestBanner({ manifest, expiresAt, sourceFile, onRese
               <button
                 className="modpack-dropdown-item"
                 onClick={openInEphervex}
-                title="Import the Modrinth pack into the Ephervex launcher"
+                disabled={!ephervexLink}
+                title={
+                  ephervexLink
+                    ? 'Import the Modrinth pack into the Ephervex launcher'
+                    : 'Needs an HTTPS server: Ephervex only downloads packs over HTTPS'
+                }
+                style={ephervexLink ? undefined : { opacity: 0.45, cursor: 'not-allowed' }}
               >
                 Open in Ephervex
               </button>

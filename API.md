@@ -225,10 +225,17 @@ ephervex://import?url=<urlencoded modpack url>
 ephervex://import?url=https%3A%2F%2Fdumps.example.com%2Fapi%2Fdump%2F550e8400-e29b-41d4-a716-446655440000%2Fmodpack%3Fplatform%3Dmodrinth
 ```
 
-The `url` parameter is a single percent-encoded absolute `http`/`https` URL. Nothing about
-the scheme is DumpViewer-specific: the launcher downloads whatever pack the URL serves.
-Modrinth is used rather than CurseForge because a `.mrpack` index carries direct download
-addresses and hashes, so the launcher needs no CurseForge API credentials.
+- `url` - a single percent-encoded absolute **`https`** URL without credentials. Ephervex
+  refuses to download a pack over plaintext `http`, so the frontend offers no link at all
+  when the backend is not served over HTTPS (e.g. a local dev backend). Before downloading,
+  Ephervex shows the address without its query and asks whether to trust the host, once or
+  for good; a redirect to another host would need a second approval, so this endpoint
+  serves the pack directly and should stay that way.
+
+Nothing about the scheme is DumpViewer-specific: the launcher downloads whatever pack the
+URL serves. Only the Modrinth format is offered: a `.mrpack` index carries direct download
+addresses and hashes, so nothing in it can hit CurseForge files whose authors block
+third-party downloads.
 
 The frontend builds the link in `frontend/src/utils/ephervexLink.ts`.
 
