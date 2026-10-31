@@ -538,6 +538,67 @@ describe('GET /api/dump/:id', () => {
     expect(res.status).toBe(400);
     expect(res.body).toHaveProperty('error');
   });
+
+  describe('X-Dump-Link', () => {
+    // Seeded on disk so these do not spend the shared upload rate-limit budget
+    function seed(id: string, meta: Record<string, unknown>): void {
+      fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.zip`), buildValidSbbZip(id));
+      fs.writeFileSync(
+        path.join(TEST_DUMPS_DIR, `${id}.meta`),
+        JSON.stringify({ expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000, ...meta }),
+      );
+    }
+
+    it('carries the stored link so the frontend can hand it to a launcher', async () => {
+      const id = '7d000000-0000-4000-8000-000000000001';
+      seed(id, { link: 'https://github.com/o/r/issues/412' });
+      const res = await request(app).get(`/api/dump/${id}`);
+      expect(res.status).toBe(200);
+      expect(res.headers['x-dump-link']).toBe('https://github.com/o/r/issues/412');
+    });
+
+    it('is absent when the dump has no link', async () => {
+      const id = '7d000000-0000-4000-8000-000000000002';
+      seed(id, {});
+      const res = await request(app).get(`/api/dump/${id}`);
+      expect(res.status).toBe(200);
+      expect(res.headers['x-dump-link']).toBeUndefined();
+    });
+
+    it('percent-encodes a non-ASCII link instead of failing the download', async () => {
+      const id = '7d000000-0000-4000-8000-000000000003';
+      seed(id, { link: 'https://example.com/issues/ä' });
+      const res = await request(app).get(`/api/dump/${id}`);
+      expect(res.status).toBe(200);
+      expect(res.headers['x-dump-link']).toBe('https://example.com/issues/%C3%A4');
+    });
+
+    it('ignores a stored link that is not http(s)', async () => {
+      const id = '7d000000-0000-4000-8000-000000000004';
+      seed(id, { link: 'javascript:alert(1)' });
+      const res = await request(app).get(`/api/dump/${id}`);
+      expect(res.status).toBe(200);
+      expect(res.headers['x-dump-link']).toBeUndefined();
+    });
+
+    it('survives a sidecar whose expiry is unreadable', async () => {
+      const id = '7d000000-0000-4000-8000-000000000005';
+      fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.zip`), buildValidSbbZip(id));
+      fs.writeFileSync(path.join(TEST_DUMPS_DIR, `${id}.meta`), JSON.stringify({ link: 'https://github.com/o/r/issues/7' }));
+      const res = await request(app).get(`/api/dump/${id}`);
+      expect(res.status).toBe(200);
+      expect(res.headers['x-dump-link']).toBe('https://github.com/o/r/issues/7');
+    });
+
+    it('is exposed to cross-origin readers', async () => {
+      const id = '7d000000-0000-4000-8000-000000000006';
+      seed(id, { link: 'https://github.com/o/r/issues/412' });
+      const res = await request(app).get(`/api/dump/${id}`).set('Origin', 'http://localhost:5173');
+      expect(res.status).toBe(200);
+      expect(res.headers['x-dump-link']).toBe('https://github.com/o/r/issues/412');
+      expect(res.headers['access-control-expose-headers']).toContain('X-Dump-Link');
+    });
+  });
 });
 
 // ============================================================

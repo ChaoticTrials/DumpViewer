@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { modpackUrl, ephervexImportUrl } from './ephervexLink';
+import { modpackUrl, ephervexImportUrl, ephervexIssueLink } from './ephervexLink';
 
 const ID = '550e8400-e29b-41d4-a716-446655440000';
 const ORIGIN = 'https://dumps.example.com';
@@ -73,5 +73,52 @@ describe('ephervexImportUrl', () => {
   it('returns null for a malformed or relative URL', () => {
     expect(ephervexImportUrl('')).toBeNull();
     expect(ephervexImportUrl(`/api/dump/${ID}/modpack?platform=modrinth`)).toBeNull();
+  });
+
+  it('adds the issue link as its own parameter, encoded so it round-trips', () => {
+    const issue = 'https://github.com/o/r/issues/412?x=1&y=2';
+    const link = new URL(ephervexImportUrl(PACK, issue) as string);
+    expect(link.searchParams.getAll('url')).toEqual([PACK]);
+    expect(link.searchParams.get('issue')).toBe(issue);
+  });
+
+  it('leaves out an issue link Ephervex would refuse', () => {
+    expect(new URL(ephervexImportUrl(PACK, 'javascript:alert(1)') as string).searchParams.has('issue')).toBe(false);
+    expect(new URL(ephervexImportUrl(PACK, 'https://example.com/a b') as string).searchParams.has('issue')).toBe(false);
+  });
+
+  it('leaves the issue parameter out when there is none', () => {
+    expect(new URL(ephervexImportUrl(PACK, null) as string).searchParams.has('issue')).toBe(false);
+  });
+});
+
+describe('ephervexIssueLink', () => {
+  it('prefers the link stored with the dump', () => {
+    expect(ephervexIssueLink('https://github.com/o/r/issues/412', ORIGIN, ID)).toBe('https://github.com/o/r/issues/412');
+  });
+
+  it('falls back to the dump page when nothing is stored', () => {
+    expect(ephervexIssueLink(null, ORIGIN, ID)).toBe(`${ORIGIN}/${ID}`);
+    expect(ephervexIssueLink(undefined, ORIGIN, ID)).toBe(`${ORIGIN}/${ID}`);
+    expect(ephervexIssueLink('', ORIGIN, ID)).toBe(`${ORIGIN}/${ID}`);
+  });
+
+  it('accepts plaintext http, as Ephervex does for issue links', () => {
+    expect(ephervexIssueLink('http://tracker.example.com/1', ORIGIN, ID)).toBe('http://tracker.example.com/1');
+    expect(ephervexIssueLink(null, 'http://localhost:5173', ID)).toBe(`http://localhost:5173/${ID}`);
+  });
+
+  it('falls back to the dump page for a stored link Ephervex would refuse', () => {
+    const page = `${ORIGIN}/${ID}`;
+    expect(ephervexIssueLink('javascript:alert(1)', ORIGIN, ID)).toBe(page);
+    expect(ephervexIssueLink('https://user:pass@example.com/1', ORIGIN, ID)).toBe(page);
+    expect(ephervexIssueLink('https://example.com/a b', ORIGIN, ID)).toBe(page);
+    expect(ephervexIssueLink(`https://example.com/${'a'.repeat(2048)}`, ORIGIN, ID)).toBe(page);
+    expect(ephervexIssueLink('not a url', ORIGIN, ID)).toBe(page);
+  });
+
+  it('returns null when neither the stored link nor the dump page is usable', () => {
+    expect(ephervexIssueLink(null, '', ID)).toBeNull();
+    expect(ephervexIssueLink('javascript:alert(1)', 'file://', ID)).toBeNull();
   });
 });

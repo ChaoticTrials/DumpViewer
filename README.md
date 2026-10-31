@@ -76,10 +76,12 @@ Either pack contains the dump's configs under `config/skyblockbuilder/` and its 
 **Open in Ephervex** navigates to a custom URL scheme:
 
 ```
-ephervex://import?url=<urlencoded modpack url>
+ephervex://import?url=<urlencoded modpack url>&issue=<urlencoded issue url>
 ```
 
 The browser asks for permission to open the external application. Ephervex then shows the pack's address, asks whether to trust this server (once, or for good), and opens its normal import dialog. Nothing in the scheme is DumpViewer-specific — the `url` parameter is just a percent-encoded `https` pack address. Ephervex refuses plaintext `http`, so the item is greyed out when the server is not reached over HTTPS (for example a local dev backend). Only the Modrinth format is offered: a `.mrpack` index carries direct download addresses and hashes, so the import never stops on CurseForge files that block third-party downloads.
+
+The link also carries an `issue` parameter, which Ephervex records as the issue the new instance reproduces: the dump's stored **link** (see [Admin panel](#admin-panel)) if one is set, otherwise the dump's own page.
 
 A browser cannot report whether a scheme handler is registered, so if nothing takes over within about two seconds the dropdown offers a plain `.mrpack` download instead, plus a link to [install Ephervex](https://ephervex.chaotictrials.de/install). The Linux packages register the `ephervex://` scheme on install; the AppImage needs `ephervex url-handler register` once. See [API.md](API.md#opening-a-dump-in-a-launcher) for the link contract.
 
@@ -89,7 +91,7 @@ Navigate to `/admin` to manage all dumps stored on the server. The panel asks fo
 
 The panel lists every stored dump — manifest format, name, link, manifest ID, Minecraft version, Skyblock Builder version, creation date, and expiry — sorted so the dumps expiring soonest come first. Each row has a **View** button (opens the dump at `/<id>` in a new tab) and a **Delete** button (asks for a confirming second click before deleting).
 
-**Name and link** are optional labels for a stored dump — for example "Issue #412" pointing at the GitHub issue the dump came from. They are display metadata only: dumps stay reachable at `/<manifest-id>` and nowhere else, and neither is shown on the dump viewing page.
+**Name and link** are optional labels for a stored dump — for example "Issue #412" pointing at the GitHub issue the dump came from. They are display metadata only: dumps stay reachable at `/<manifest-id>` and nowhere else, and neither is shown on the dump viewing page. The link is not private, though: `GET /api/dump/:id` returns it in an `X-Dump-Link` header so **Open in Ephervex** can pass it along as the issue link.
 
 Click a **Name** or **Link** cell in the admin panel to edit it inline: <kbd>Enter</kbd> saves, <kbd>Escape</kbd> cancels, and emptying the field clears it. A row with no name shows its manifest ID greyed out as a placeholder; a row with no link shows a muted dash. Both can also be supplied when the dump is stored, via the `name`/`link` fields of `POST /api/dump/upload` and `POST /api/dump/import`, or changed later with `PATCH /api/dump/:id` (see [API.md](API.md)). Note that re-uploading a dump with the same manifest ID clears any metadata not sent with that upload.
 

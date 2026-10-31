@@ -138,10 +138,11 @@ Returns the zip with `Content-Type: application/zip`. Returns `404` if no dump w
 
 **Response headers:**
 
-| Header         | Description                                                                                                                 |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `X-Expires-At` | ISO 8601 timestamp when the dump will be deleted (e.g. `2027-03-16T12:00:00.000Z`). Present only when a TTL sidecar exists. |
-| `Expires`      | Same timestamp in HTTP-date format, for caches. Present only when a TTL sidecar exists.                                     |
+| Header         | Description                                                                                                                                                                                                     |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `X-Expires-At` | ISO 8601 timestamp when the dump will be deleted (e.g. `2027-03-16T12:00:00.000Z`). Present only when a TTL sidecar exists.                                                                                     |
+| `X-Dump-Link`  | The dump's stored `link` (see upload/import/`PATCH`), serialized as a URL so non-ASCII is percent-encoded. Present only when a link is set. The frontend passes it to the launcher deep link as the issue link. |
+| `Expires`      | Same timestamp in HTTP-date format, for caches. Present only when a TTL sidecar exists.                                                                                                                         |
 
 ---
 
@@ -218,11 +219,11 @@ The Modrinth pack URL above can be handed to a launcher directly through a custo
 scheme, so the pack is imported without a manual download:
 
 ```
-ephervex://import?url=<urlencoded modpack url>
+ephervex://import?url=<urlencoded modpack url>&issue=<urlencoded issue url>
 ```
 
 ```
-ephervex://import?url=https%3A%2F%2Fdumps.example.com%2Fapi%2Fdump%2F550e8400-e29b-41d4-a716-446655440000%2Fmodpack%3Fplatform%3Dmodrinth
+ephervex://import?url=https%3A%2F%2Fdumps.example.com%2Fapi%2Fdump%2F550e8400-e29b-41d4-a716-446655440000%2Fmodpack%3Fplatform%3Dmodrinth&issue=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Fissues%2F412
 ```
 
 - `url` - a single percent-encoded absolute **`https`** URL without credentials. Ephervex
@@ -231,6 +232,11 @@ ephervex://import?url=https%3A%2F%2Fdumps.example.com%2Fapi%2Fdump%2F550e8400-e2
   Ephervex shows the address without its query and asks whether to trust the host, once or
   for good; a redirect to another host would need a second approval, so this endpoint
   serves the pack directly and should stay that way.
+- `issue` _(optional)_ — what the imported instance reproduces, for Ephervex's Case record:
+  the dump's stored `link` (from the `X-Dump-Link` header) if set, otherwise the dump's own
+  page (`https://dumps.example.com/<id>`). It follows Ephervex's issue-link rules —
+  `http`/`https`, no whitespace or credentials, at most 2048 bytes — and a stored link that
+  breaks them falls back to the dump page.
 
 Nothing about the scheme is DumpViewer-specific: the launcher downloads whatever pack the
 URL serves. Only the Modrinth format is offered: a `.mrpack` index carries direct download

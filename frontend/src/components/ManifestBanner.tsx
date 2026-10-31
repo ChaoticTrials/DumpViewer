@@ -5,7 +5,7 @@ import ThemeToggle from './ThemeToggle';
 import { HeaderLogo } from './HeaderLogo.tsx';
 import { useIsMobile } from '../utils/useIsMobile';
 import { downloadBlob } from '../utils/download';
-import { modpackUrl, ephervexImportUrl } from '../utils/ephervexLink';
+import { modpackUrl, ephervexImportUrl, ephervexIssueLink } from '../utils/ephervexLink';
 import { FaUpload, FaDownload, FaCheck, FaSpinner } from 'react-icons/fa6';
 
 const _rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
@@ -19,6 +19,8 @@ const EPHERVEX_INSTALL_URL = 'https://ephervex.chaotictrials.de/install';
 interface Props {
   manifest: AnyManifest;
   expiresAt?: Date | null;
+  /** Link stored with a server dump (e.g. its GitHub issue); sent to Ephervex as the issue link. */
+  dumpLink?: string | null;
   sourceFile: File | null;
   onReset: () => void;
   onBurgerClick?: () => void;
@@ -59,7 +61,7 @@ function ExpiryBadge({ expiresAt }: { expiresAt: Date | null | undefined }) {
   );
 }
 
-export default function ManifestBanner({ manifest, expiresAt, sourceFile, onReset, onBurgerClick }: Props) {
+export default function ManifestBanner({ manifest, expiresAt, dumpLink, sourceFile, onReset, onBurgerClick }: Props) {
   const isMobile = useIsMobile();
   const badgeContentRef = useRef<HTMLDivElement>(null);
   const [shouldCollapse, setShouldCollapse] = useState(false);
@@ -195,7 +197,9 @@ export default function ManifestBanner({ manifest, expiresAt, sourceFile, onRese
   // `null` when the pack cannot be served over https (e.g. a plain-http dev
   // backend), since Ephervex refuses to download it from anywhere else.
   const packUrl = modpackUrl(API_URL, window.location.origin, manifest.manifest_id);
-  const ephervexLink = packUrl ? ephervexImportUrl(packUrl) : null;
+  const ephervexLink = packUrl
+    ? ephervexImportUrl(packUrl, ephervexIssueLink(dumpLink, window.location.origin, manifest.manifest_id))
+    : null;
 
   function openInEphervex() {
     const link = ephervexLink;

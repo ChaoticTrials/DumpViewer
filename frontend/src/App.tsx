@@ -46,12 +46,15 @@ export default function App() {
   const [manifestId, setManifestId] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [expiresAt, setExpiresAt] = useState<Date | null | undefined>(undefined);
+  // The link an admin stored with a server dump (e.g. its GitHub issue), if any.
+  const [dumpLink, setDumpLink] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sourceFile, setSourceFile] = useState<File | null>(null);
 
   const handleFile = useCallback(async (file: File) => {
     setError(undefined);
     setExpiresAt(undefined); // "Local" until the server provides an expiry date
+    setDumpLink(null); // likewise, a stored link only comes with a server dump
     setLoading(true);
     try {
       const parsed = await parseDump(file);
@@ -98,11 +101,13 @@ export default function App() {
           // Capture expiry header before consuming the body.
           // `Expires` is a CORS-safe header (always exposed); fall back to custom `X-Expires-At`.
           const expiresHeader = res.headers.get('Expires') || res.headers.get('X-Expires-At');
+          const linkHeader = res.headers.get('X-Dump-Link');
           const blob = await res.blob();
           const file = new File([blob], `${raw}.zip`);
           await handleFile(file);
           const d = expiresHeader ? new Date(expiresHeader) : null;
           setExpiresAt(d && !isNaN(d.getTime()) ? d : null);
+          setDumpLink(linkHeader || null);
         } else {
           setNotFound(true);
           setLoading(false);
@@ -161,11 +166,13 @@ export default function App() {
       <ManifestBanner
         manifest={dump.manifest}
         expiresAt={expiresAt}
+        dumpLink={dumpLink}
         sourceFile={sourceFile}
         onReset={() => {
           setDump(null);
           setSelected(null);
           setExpiresAt(undefined);
+          setDumpLink(null);
           setSourceFile(null);
           window.history.pushState({}, '', '/');
         }}

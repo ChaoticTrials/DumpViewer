@@ -146,8 +146,8 @@ fs.mkdirSync(DUMPS_DIR, { recursive: true });
 
 export const app = express();
 
-// Open CORS — expose X-Expires-At for browser fetch
-app.use(cors({ origin: ALLOWED_ORIGIN, exposedHeaders: ['X-Expires-At'] }));
+// Open CORS — expose X-Expires-At and X-Dump-Link for browser fetch
+app.use(cors({ origin: ALLOWED_ORIGIN, exposedHeaders: ['X-Expires-At', 'X-Dump-Link'] }));
 
 // 8 kb: a 2048-char link plus a 2048-char import url plus a 256-char name can
 // cross 4 kb and would otherwise fail with a confusing 413.
@@ -376,9 +376,11 @@ export function parseDumpName(raw: unknown): ParseResult<string | null> {
 
 // Helper: parse the optional `link` for a dump. Deliberately *not* isSafeUrl():
 // that is an SSRF guard for URLs the server fetches, and it also rejects
-// localhost / RFC 1918 — wrong here, because this link is never fetched, only
-// rendered as an <a> in the auth-gated admin panel. The real risk is scheme
-// injection (javascript:, data:), which the http/https check covers.
+// localhost / RFC 1918 — wrong here, because this link is never fetched by the
+// server. It is rendered as an <a> in the admin panel and also returned publicly
+// (X-Dump-Link on GET /api/dump/:id) for the launcher deep link, so it is not
+// secret. The real risk is scheme injection (javascript:, data:), which the
+// http/https check covers.
 export function parseDumpLink(raw: unknown): ParseResult<string | null> {
   if (raw === null || raw === undefined) return { ok: true, value: null };
   if (typeof raw !== 'string') return { ok: false, error: 'link must be a string' };
@@ -399,6 +401,16 @@ export function parseDumpLink(raw: unknown): ParseResult<string | null> {
     return { ok: false, error: 'link must use http or https' };
   }
   return { ok: true, value: trimmed };
+}
+
+// The stored link as an HTTP header value: re-checked as http(s), since the
+// sidecar is just a file, and serialized through URL so non-ASCII is
+// percent-encoded (a raw one would make setHeader throw and fail the download).
+function headerSafeLink(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const parsed = parseDumpLink(raw);
+  // parseDumpLink already proved the value parses as a URL
+  return parsed.ok && parsed.value !== null ? new URL(parsed.value).href : null;
 }
 
 // Helper: delete expired dump files; returns count of deleted files.
@@ -718,7 +730,10 @@ app.get('/api/dump/:id', generalLimiter, (req, res) => {
   const metaPath = path.join(DUMPS_DIR, `${id}.meta`);
   if (fs.existsSync(metaPath)) {
     try {
-      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { expiresAt: number };
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { expiresAt: number; link?: unknown };
+      // Before the expiry headers: a bad `expiresAt` throws and must not take the link with it
+      const link = headerSafeLink(meta.link);
+      if (link) res.setHeader('X-Dump-Link', link);
       const expiresDate = new Date(meta.expiresAt);
       res.setHeader('X-Expires-At', expiresDate.toISOString());
       res.setHeader('Expires', expiresDate.toUTCString());
