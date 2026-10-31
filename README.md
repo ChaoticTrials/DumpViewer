@@ -81,7 +81,7 @@ ephervex://import?url=<urlencoded modpack url>
 
 The browser asks for permission to open the external application. Ephervex then shows the pack's address, asks whether to trust this server (once, or for good), and opens its normal import dialog. Nothing in the scheme is DumpViewer-specific — the `url` parameter is just a percent-encoded `https` pack address. Ephervex refuses plaintext `http`, so the item is greyed out when the server is not reached over HTTPS (for example a local dev backend). Only the Modrinth format is offered: a `.mrpack` index carries direct download addresses and hashes, so the import never stops on CurseForge files that block third-party downloads.
 
-A browser cannot report whether a scheme handler is registered, so if nothing takes over within about two seconds the dropdown offers a plain `.mrpack` download instead. The Linux packages register the `ephervex://` scheme on install; the AppImage needs `ephervex url-handler register` once. See [API.md](API.md#opening-a-dump-in-a-launcher) for the link contract.
+A browser cannot report whether a scheme handler is registered, so if nothing takes over within about two seconds the dropdown offers a plain `.mrpack` download instead, plus a link to [install Ephervex](https://ephervex.chaotictrials.de/install). The Linux packages register the `ephervex://` scheme on install; the AppImage needs `ephervex url-handler register` once. See [API.md](API.md#opening-a-dump-in-a-launcher) for the link contract.
 
 ### Admin panel
 

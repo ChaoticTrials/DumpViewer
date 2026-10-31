@@ -13,9 +13,8 @@ const API_URL: string = import.meta.env.PROD ? (_rawApiUrl ?? '') : (_rawApiUrl 
 // In dev, no VITE_API_URL means browser-only mode (no backend to upload to).
 const BACKEND_AVAILABLE = import.meta.env.PROD || _rawApiUrl !== undefined;
 
-// Where to send someone who does not have the launcher yet. Empty until Ephervex
-// has a public download page; the fallback hint omits the link while it is unset.
-const EPHERVEX_SITE: string = '';
+// Where to send someone who does not have the launcher yet.
+const EPHERVEX_INSTALL_URL = 'https://ephervex.chaotictrials.de/install';
 
 interface Props {
   manifest: AnyManifest;
@@ -477,14 +476,10 @@ export default function ManifestBanner({ manifest, expiresAt, sourceFile, onRese
                   <button className="modpack-dropdown-hint-link" onClick={() => triggerModpackDownload('modrinth')}>
                     Download .mrpack
                   </button>
-                  {EPHERVEX_SITE && (
-                    <>
-                      {' or '}
-                      <a href={EPHERVEX_SITE} target="_blank" rel="noreferrer">
-                        get Ephervex
-                      </a>
-                    </>
-                  )}
+                  {' or '}
+                  <a href={EPHERVEX_INSTALL_URL} target="_blank" rel="noreferrer">
+                    get Ephervex
+                  </a>
                 </div>
               )}
             </div>
